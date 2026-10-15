@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<component>
+	<name>org.freedesktop.IBus.DroidDeckAndroid</name>
+	<description>DroidDeck Android keyboard</description>
+	<exec>/usr/local/bin/droiddeck-android-ime --ibus</exec>
+	<version>0.1</version>
+	<author>DroidDeck</author>
+	<license>GPL-3.0</license>
+	<homepage>https://github.com/Droid-Deck/DroidDeck</homepage>
+	<textdomain>droiddeck</textdomain>
+	<engines>
+		<engine>
+			<name>droiddeck-android</name>
+			<language>ja</language>
+			<license>GPL-3.0</license>
+			<author>DroidDeck</author>
+			<icon>input-keyboard</icon>
+			<layout>us</layout>
+			<longname>Android keyboard (DroidDeck)</longname>
+			<description>Types what the Android soft keyboard composes</description>
+			<rank>0</rank>
+			<symbol>A</symbol>
+		</engine>
+	</engines>
+</component>
