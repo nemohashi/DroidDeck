@@ -33,9 +33,25 @@ class KeyboardHost(
 
     override fun onCheckIsTextEditor(): Boolean = shown
 
+    private val guestFocusChanged = { if (shown) imm.restartInput(this) }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        GuestTextInput.addListener(guestFocusChanged)
+        GuestTextInput.connect(context)
+    }
+
+    override fun onDetachedFromWindow() {
+        GuestTextInput.removeListener(guestFocusChanged)
+        super.onDetachedFromWindow()
+    }
+
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
         if (!shown) return null
-        outAttrs.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS or
+        // A text field under the guest's input method takes text as it is, so the keyboard may
+        // compose, in any of its languages; elsewhere it sends what was pressed, key by key.
+        outAttrs.inputType = if (GuestTextInput.focused) InputType.TYPE_CLASS_TEXT
+        else InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS or
             InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
         outAttrs.imeOptions = EditorInfo.IME_ACTION_NONE or EditorInfo.IME_FLAG_NO_FULLSCREEN or
             EditorInfo.IME_FLAG_NO_EXTRACT_UI
@@ -49,6 +65,8 @@ class KeyboardHost(
 
     fun show() {
         shown = true
+        GuestTextInput.connect(context)
+        GuestTextInput.keyboardShown(true)
         isFocusable = true
         isFocusableInTouchMode = true
         requestFocus()
@@ -58,6 +76,7 @@ class KeyboardHost(
 
     fun hide() {
         shown = false
+        GuestTextInput.keyboardShown(false)
         imm.hideSoftInputFromWindow(windowToken, 0)
         isFocusable = false
         isFocusableInTouchMode = false
@@ -65,8 +84,14 @@ class KeyboardHost(
     }
 
     private inner class KeyConnection : BaseInputConnection(this, false) {
+        private var composing = ""
+
         override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+            val guest = GuestTextInput.focused
+            if (guest && composing.isNotEmpty() && text.isNullOrEmpty()) GuestTextInput.preedit("", 0)
+            composing = ""
             if (text.isNullOrEmpty()) return true
+            if (guest && GuestTextInput.commit(text)) return true
             val events = map.getEvents(text.toString().toCharArray())
             if (events != null) {
                 for (event in events) sendKeyEvent(event)
@@ -82,10 +107,26 @@ class KeyboardHost(
             return true
         }
 
-        override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean = true
-        override fun finishComposingText(): Boolean = true
+        override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
+            if (!GuestTextInput.focused) return true
+            composing = text?.toString().orEmpty()
+            val cursor = if (newCursorPosition > 0) composing.codePointCount(0, composing.length) else 0
+            GuestTextInput.preedit(composing, cursor)
+            return true
+        }
+
+        override fun finishComposingText(): Boolean {
+            val text = composing
+            composing = ""
+            if (text.isNotEmpty() && GuestTextInput.focused) GuestTextInput.commit(text)
+            return true
+        }
 
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
+            if (composing.isNotEmpty()) {
+                composing = ""
+                if (GuestTextInput.focused) GuestTextInput.preedit("", 0)
+            }
             repeat(beforeLength) { tap(KeyEvent.KEYCODE_DEL) }
             repeat(afterLength) { tap(KeyEvent.KEYCODE_FORWARD_DEL) }
             return true
