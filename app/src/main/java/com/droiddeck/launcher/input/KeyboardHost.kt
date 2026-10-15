@@ -8,6 +8,7 @@ import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowInsets
+import android.view.WindowInsetsAnimation
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
@@ -24,6 +25,9 @@ class KeyboardHost(
     var shown = false
         private set
 
+    /** The soft keyboard settled shown (with its height in window pixels) or hidden. */
+    var onImeChanged: ((visible: Boolean, height: Int) -> Unit)? = null
+
     init {
         isFocusable = false
         isFocusableInTouchMode = false
@@ -39,6 +43,26 @@ class KeyboardHost(
         super.onAttachedToWindow()
         GuestTextInput.addListener(guestFocusChanged)
         GuestTextInput.connect(context)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            setWindowInsetsAnimationCallback(object : WindowInsetsAnimation.Callback(
+                WindowInsetsAnimation.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE
+            ) {
+                override fun onProgress(insets: WindowInsets, running: MutableList<WindowInsetsAnimation>) = insets
+                override fun onEnd(animation: WindowInsetsAnimation) {
+                    if ((animation.typeMask and WindowInsets.Type.ime()) != 0) imeSettled()
+                }
+            })
+        }
+    }
+
+    // The system hides the keyboard too (back, its own hide key); then the state still says shown
+    // and the next toggle would hide nothing. Seen only once the animation ends: during it the
+    // insets already read hidden.
+    private fun imeSettled() {
+        val insets = rootWindowInsets ?: return
+        val visible = insets.isVisible(WindowInsets.Type.ime())
+        if (shown && !visible) dismissed()
+        onImeChanged?.invoke(visible, if (visible) insets.getInsets(WindowInsets.Type.ime()).bottom else 0)
     }
 
     override fun onDetachedFromWindow() {
@@ -75,9 +99,13 @@ class KeyboardHost(
     }
 
     fun hide() {
+        imm.hideSoftInputFromWindow(windowToken, 0)
+        dismissed()
+    }
+
+    private fun dismissed() {
         shown = false
         GuestTextInput.keyboardShown(false)
-        imm.hideSoftInputFromWindow(windowToken, 0)
         isFocusable = false
         isFocusableInTouchMode = false
         clearFocus()
