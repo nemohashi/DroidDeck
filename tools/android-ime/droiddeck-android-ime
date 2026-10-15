@@ -1,0 +1,296 @@
+#!/usr/bin/env python3
+# The ibus engine DroidDeck's Android soft keyboard types through (app side: input/GuestTextInput.kt).
+#
+# The app connects to $XDG_RUNTIME_DIR/droiddeck-ime.sock, in the Wayland runtime dir it shares
+# with the guest, and sends one JSON object per line:
+#   {"t": "show"} / {"t": "hide"}             the soft keyboard opened or closed
+#   {"t": "preedit", "text": s, "cursor": n}  what is being composed, cursor in code points
+#   {"t": "commit", "text": s}                text to type
+# It is told {"t": "focus", "on": bool} on connect and whenever a text field takes or loses this
+# engine. While the keyboard is open this engine is ibus's global engine, so the field is under
+# it; the engine that was global before gets the keyboard back when it closes.
+#
+# ibus-daemon replies to SetGlobalEngine only after the new engine exists, which it asks this
+# process for, so bus calls that can switch engines must be asynchronous.
+
+import json
+import os
+import socket
+import sys
+
+import gi
+gi.require_version('IBus', '1.0')
+from gi.repository import GLib, GObject, IBus
+
+ENGINE = 'droiddeck-android'
+BUS_NAME = 'org.freedesktop.IBus.DroidDeckAndroid'
+RUNTIME_DIR = os.environ.get('XDG_RUNTIME_DIR') or '/run/droiddeck'
+SOCKET = os.path.join(RUNTIME_DIR, 'droiddeck-ime.sock')
+LOG = os.path.join(os.environ.get('XDG_CACHE_HOME') or os.path.expanduser('~/.cache'), 'droiddeck-android-ime.log')
+PENDING_MS = 1500
+
+relay = None
+
+
+def log(msg):
+    line = f'droiddeck-android-ime: {msg}'
+    print(line, file=sys.stderr, flush=True)
+    try:
+        with open(LOG, 'a') as f:
+            f.write(line + '\n')
+    except OSError:
+        pass
+
+
+class Engine(IBus.Engine):
+    __gtype_name__ = 'IBusEngineDroidDeckAndroid'
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.preedit = ''
+
+    def do_focus_in(self):
+        relay.focused(self)
+
+    def do_focus_out(self):
+        self.set_preedit('', 0)
+        relay.unfocused(self)
+
+    def do_enable(self):
+        pass
+
+    def do_disable(self):
+        self.set_preedit('', 0)
+        relay.unfocused(self)
+
+    def do_reset(self):
+        self.set_preedit('', 0)
+
+    def do_process_key_event(self, keyval, keycode, state):
+        return False
+
+    def set_preedit(self, text, cursor):
+        if not text:
+            if self.preedit:
+                self.preedit = ''
+                self.hide_preedit_text()
+            return
+        self.preedit = text
+        t = IBus.Text.new_from_string(text)
+        t.append_attribute(IBus.AttrType.UNDERLINE, IBus.AttrUnderline.SINGLE, 0, len(text))
+        self.update_preedit_text_with_mode(t, min(max(cursor, 0), len(text)), True, IBus.PreeditFocusMode.CLEAR)
+
+    def commit(self, text):
+        self.set_preedit('', 0)
+        if text:
+            self.commit_text(IBus.Text.new_from_string(text))
+
+
+class Relay:
+    def __init__(self, bus):
+        self.bus = bus
+        self.engine = None
+        self.clients = {}
+        self.pending = []
+        self.pending_timer = 0
+        self.global_name = None
+        self.previous = None
+        self.keyboard_open = False
+        bus.set_watch_ibus_signal(True)
+        bus.connect('global-engine-changed', self.global_engine_changed)
+        try:
+            desc = bus.get_global_engine()
+            self.global_name = desc.get_name() if desc else None
+        except GLib.Error as e:
+            log(f'no global engine yet: {e}')
+        self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            os.unlink(SOCKET)
+        except FileNotFoundError:
+            pass
+        self.server.bind(SOCKET)
+        os.chmod(SOCKET, 0o600)
+        self.server.listen(4)
+        self.server.setblocking(False)
+        GLib.io_add_watch(self.server.fileno(), GLib.PRIORITY_DEFAULT, GLib.IO_IN, self.accept)
+        log(f'listening on {SOCKET}, global engine {self.global_name}')
+
+    def accept(self, fd, cond):
+        try:
+            c, _ = self.server.accept()
+        except OSError:
+            return True
+        c.setblocking(False)
+        self.clients[c] = b''
+        GLib.io_add_watch(c.fileno(), GLib.PRIORITY_DEFAULT, GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR, self.readable, c)
+        self.tell(c, {'t': 'focus', 'on': self.engine is not None})
+        log('the app connected')
+        return True
+
+    def readable(self, fd, cond, c):
+        if c not in self.clients:
+            return False
+        try:
+            data = c.recv(65536)
+        except BlockingIOError:
+            return True
+        except OSError:
+            data = b''
+        if not data:
+            self.drop(c)
+            return False
+        buf = self.clients[c] + data
+        while b'\n' in buf:
+            line, buf = buf.split(b'\n', 1)
+            try:
+                self.handle(json.loads(line))
+            except (ValueError, TypeError, AttributeError) as e:
+                log(f'bad message: {e}')
+        if c in self.clients:
+            self.clients[c] = buf
+        return True
+
+    def drop(self, c):
+        if self.clients.pop(c, None) is None:
+            return
+        c.close()
+        log('the app disconnected')
+        if not self.clients:
+            self.keyboard(False)
+
+    def tell(self, c, msg):
+        try:
+            c.sendall((json.dumps(msg) + '\n').encode())
+        except OSError:
+            self.drop(c)
+
+    def tell_all(self, msg):
+        for c in list(self.clients):
+            self.tell(c, msg)
+
+    def handle(self, msg):
+        t = msg.get('t')
+        if t == 'show':
+            self.keyboard(True)
+        elif t == 'hide':
+            self.keyboard(False)
+        elif t in ('preedit', 'commit'):
+            if self.engine is not None:
+                self.deliver(msg)
+            else:
+                self.pending.append(msg)
+                if not self.pending_timer:
+                    self.pending_timer = GLib.timeout_add(PENDING_MS, self.pending_expired)
+                self.keyboard(True)
+        else:
+            log(f'unknown message {t!r}')
+
+    def deliver(self, msg):
+        text = str(msg.get('text', ''))
+        if msg['t'] == 'commit':
+            self.engine.commit(text)
+        else:
+            self.engine.set_preedit(text, int(msg.get('cursor', len(text))))
+
+    def pending_expired(self):
+        self.pending_timer = 0
+        if self.pending:
+            log(f'dropped {len(self.pending)} messages: no text field took this engine')
+            self.pending = []
+        return False
+
+    def keyboard(self, open_):
+        self.keyboard_open = open_
+        if open_:
+            if self.global_name != ENGINE:
+                self.previous = self.global_name
+                self.switch(ENGINE)
+        elif self.global_name == ENGINE and self.previous and self.previous != ENGINE:
+            self.switch(self.previous)
+            self.previous = None
+
+    def switch(self, name):
+        log(f'switching the global engine to {name}')
+        self.bus.set_global_engine_async(name, -1, None, self.switched, name)
+
+    def switched(self, bus, result, name):
+        try:
+            bus.set_global_engine_async_finish(result)
+        except GLib.Error as e:
+            log(f'could not switch to {name}: {e}')
+
+    def global_engine_changed(self, bus, name):
+        self.global_name = name
+
+    def focused(self, engine):
+        self.engine = engine
+        self.tell_all({'t': 'focus', 'on': True})
+        pending, self.pending = self.pending, []
+        if self.pending_timer:
+            GLib.source_remove(self.pending_timer)
+            self.pending_timer = 0
+        for msg in pending:
+            self.deliver(msg)
+
+    def unfocused(self, engine):
+        if self.engine is not engine:
+            return
+        self.engine = None
+        self.tell_all({'t': 'focus', 'on': False})
+
+
+def component(path):
+    c = IBus.Component(name=BUS_NAME,
+                       description='DroidDeck Android keyboard',
+                       version='0.1',
+                       license='GPL-3.0',
+                       author='DroidDeck',
+                       homepage='https://github.com/Droid-Deck/DroidDeck',
+                       command_line=f'{path} --ibus',
+                       textdomain='droiddeck')
+    c.add_engine(IBus.EngineDesc(name=ENGINE,
+                                 longname='Android keyboard (DroidDeck)',
+                                 description='Types what the Android soft keyboard composes',
+                                 language='ja',
+                                 license='GPL-3.0',
+                                 author='DroidDeck',
+                                 icon='input-keyboard',
+                                 layout='us',
+                                 rank=0,
+                                 symbol='A'))
+    return c
+
+
+def main():
+    global relay
+    exec_by_ibus = '--ibus' in sys.argv[1:]
+    try:
+        open(LOG, 'w').close()
+    except OSError:
+        pass
+    IBus.init()
+    bus = IBus.Bus()
+    if not bus.is_connected():
+        log('ibus-daemon is not running')
+        sys.exit(1)
+    mainloop = GLib.MainLoop()
+    bus.connect('disconnected', lambda *_: mainloop.quit())
+    factory = IBus.Factory.new(bus.get_connection())
+    factory.add_engine(ENGINE, GObject.type_from_name('IBusEngineDroidDeckAndroid'))
+    relay = Relay(bus)
+    if exec_by_ibus:
+        bus.request_name(BUS_NAME, 0)
+    else:
+        bus.register_component(component(os.path.abspath(sys.argv[0])))
+        log('registered with ibus-daemon for this session')
+    try:
+        mainloop.run()
+    finally:
+        try:
+            os.unlink(SOCKET)
+        except OSError:
+            pass
+
+
+if __name__ == '__main__':
+    main()
