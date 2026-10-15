@@ -10,6 +10,10 @@
 # engine. While the keyboard is open this engine is ibus's global engine, so the field is under
 # it; the engine that was global before gets the keyboard back when it closes.
 #
+# Runs for the whole desktop session (autostart), registering with ibus-daemon whenever one is
+# up: ibus-daemon only starts engines from component XML once they are selected, and the app
+# cannot ask for that before the socket exists.
+#
 # ibus-daemon replies to SetGlobalEngine only after the new engine exists, which it asks this
 # process for, so bus calls that can switch engines must be asynchronous.
 
@@ -87,8 +91,8 @@ class Engine(IBus.Engine):
 
 
 class Relay:
-    def __init__(self, bus):
-        self.bus = bus
+    def __init__(self):
+        self.bus = None
         self.engine = None
         self.clients = {}
         self.pending = []
@@ -96,13 +100,6 @@ class Relay:
         self.global_name = None
         self.previous = None
         self.keyboard_open = False
-        bus.set_watch_ibus_signal(True)
-        bus.connect('global-engine-changed', self.global_engine_changed)
-        try:
-            desc = bus.get_global_engine()
-            self.global_name = desc.get_name() if desc else None
-        except GLib.Error as e:
-            log(f'no global engine yet: {e}')
         self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
             os.unlink(SOCKET)
@@ -113,7 +110,26 @@ class Relay:
         self.server.listen(4)
         self.server.setblocking(False)
         GLib.io_add_watch(self.server.fileno(), GLib.PRIORITY_DEFAULT, GLib.IO_IN, self.accept)
-        log(f'listening on {SOCKET}, global engine {self.global_name}')
+        log(f'listening on {SOCKET}')
+
+    def attach(self, bus):
+        self.bus = bus
+        bus.set_watch_ibus_signal(True)
+        try:
+            desc = bus.get_global_engine()
+            self.global_name = desc.get_name() if desc else None
+        except GLib.Error as e:
+            log(f'no global engine yet: {e}')
+        log(f'registered with ibus-daemon, global engine {self.global_name}')
+        if self.keyboard_open:
+            self.keyboard(True)
+
+    def detach(self):
+        self.bus = None
+        self.engine = None
+        self.global_name = None
+        self.previous = None
+        self.tell_all({'t': 'focus', 'on': False})
 
     def accept(self, fd, cond):
         try:
@@ -201,6 +217,8 @@ class Relay:
 
     def keyboard(self, open_):
         self.keyboard_open = open_
+        if self.bus is None:
+            return
         if open_:
             if self.global_name != ENGINE:
                 self.previous = self.global_name
@@ -263,28 +281,37 @@ def component(path):
 
 def main():
     global relay
-    exec_by_ibus = '--ibus' in sys.argv[1:]
     try:
         open(LOG, 'w').close()
     except OSError:
         pass
     IBus.init()
+    relay = Relay()
+    path = os.path.abspath(sys.argv[0])
+    factories = []
+
+    def connected(bus):
+        factory = IBus.Factory.new(bus.get_connection())
+        factory.add_engine(ENGINE, GObject.type_from_name('IBusEngineDroidDeckAndroid'))
+        factories[:] = [factory]
+        bus.register_component(component(path))
+        bus.connect('global-engine-changed', relay.global_engine_changed)
+        relay.attach(bus)
+
+    def disconnected(bus):
+        log('ibus-daemon went away; waiting for the next one')
+        factories[:] = []
+        relay.detach()
+
     bus = IBus.Bus()
-    if not bus.is_connected():
-        log('ibus-daemon is not running')
-        sys.exit(1)
-    mainloop = GLib.MainLoop()
-    bus.connect('disconnected', lambda *_: mainloop.quit())
-    factory = IBus.Factory.new(bus.get_connection())
-    factory.add_engine(ENGINE, GObject.type_from_name('IBusEngineDroidDeckAndroid'))
-    relay = Relay(bus)
-    if exec_by_ibus:
-        bus.request_name(BUS_NAME, 0)
+    bus.connect('connected', connected)
+    bus.connect('disconnected', disconnected)
+    if bus.is_connected():
+        connected(bus)
     else:
-        bus.register_component(component(os.path.abspath(sys.argv[0])))
-        log('registered with ibus-daemon for this session')
+        log('waiting for ibus-daemon')
     try:
-        mainloop.run()
+        GLib.MainLoop().run()
     finally:
         try:
             os.unlink(SOCKET)
