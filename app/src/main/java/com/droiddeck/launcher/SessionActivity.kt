@@ -268,6 +268,9 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     private var pressDownY = 0f
     private var pressTravel = 0f
     private var pressMoved = false
+    /** How far the picture is shifted up so the last touch stays above the soft keyboard, in pixels. */
+    private var keyboardPan = 0f
+    private var lastTouchY = -1f
     private var controllerSettings by mutableStateOf<ControllerPrefs.Settings?>(null)
     private val sessionClipboard by lazy {
         SessionClipboard(this) {
@@ -785,7 +788,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
             root.addView(controls)
         }
         keyboard = KeyboardHost(this).also { host ->
-            host.onImeChanged = { updateDesktopKeyboardButton() }
+            host.onImeChanged = { updateDesktopKeyboardButton(); panForKeyboard(it) }
             root.addView(host)
         }
         desktopKeyboardButton = com.droiddeck.launcher.input.DesktopKeyboardButton(this) { keyboard?.show() }
@@ -3985,7 +3988,28 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     private var dismissTouch = false
     private var sessionTouchDown = false
 
+    /**
+     * The soft keyboard covers the bottom of the screen and the picture does not resize for it, so a
+     * text field down there is typed into blind. The picture moves up, as far as the keyboard is
+     * tall, until the last touch (the tap that focused the field) sits above the keyboard.
+     */
+    private fun panForKeyboard(visible: Boolean) {
+        if (!::surfaceView.isInitialized || !::sessionRoot.isInitialized) return
+        val height = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
+            sessionRoot.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0 else 0
+        val pan = if (!visible || height <= 0 || lastTouchY < 0f) 0f else {
+            val margin = KEYBOARD_PAN_MARGIN_DP * resources.displayMetrics.density
+            (lastTouchY + margin - (sessionRoot.height - height)).coerceIn(0f, height.toFloat())
+        }
+        if (pan == keyboardPan) return
+        keyboardPan = pan
+        surfaceView.translationY = -pan
+        Log.i(TAG, "keyboard pan ${pan.toInt()}px: keyboard ${height}px, last touch at ${lastTouchY.toInt()}")
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) lastTouchY = event.y + keyboardPan
+        if (keyboardPan != 0f) event.offsetLocation(0f, keyboardPan)
         if (event.isFromSource(android.view.InputDevice.SOURCE_MOUSE)) return onMouse(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -5523,6 +5547,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         private const val ALIGN_PICTURE_BOTTOM = 4
         private const val ALIGN_PICTURE_LEFT = 5
         private const val ALIGN_PICTURE_RIGHT = 6
+        private const val KEYBOARD_PAN_MARGIN_DP = 56f
         private val RUNTIME_LINES = PackageLines(
             R.string.session_runtime_downloading, R.string.session_runtime_downloading_mb,
             R.string.session_runtime_checking, R.string.session_runtime_unpacking,
