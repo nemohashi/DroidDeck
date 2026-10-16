@@ -2355,24 +2355,36 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         Log.i(TAG, "keyboard pan ${pan.toInt()}px: keyboard ${height}px, last click at ${lastTapY.toInt()}")
     }
 
-    private fun noteTap(event: MotionEvent) {
+    /** Follows a finger on the screen; true on the up that ends a tap (one finger, still, quick). */
+    private fun noteTap(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                touchDownX = event.x; touchDownY = event.y; touchDownAt = event.eventTime; touchIsTap = true
+                touchDownX = event.x; touchDownY = event.y; touchDownAt = event.eventTime
+                touchIsTap = !event.isFromSource(android.view.InputDevice.SOURCE_MOUSE)
             }
             MotionEvent.ACTION_POINTER_DOWN -> touchIsTap = false
             MotionEvent.ACTION_MOVE -> {
                 val slop = android.view.ViewConfiguration.get(this).scaledTouchSlop
                 if (abs(event.x - touchDownX) > slop || abs(event.y - touchDownY) > slop) touchIsTap = false
             }
-            MotionEvent.ACTION_UP ->
-                if (touchIsTap && event.eventTime - touchDownAt < TAP_MS) lastTapY = touchDownY + keyboardPan
+            MotionEvent.ACTION_UP -> return touchIsTap && event.eventTime - touchDownAt < TAP_MS
             MotionEvent.ACTION_CANCEL -> touchIsTap = false
         }
+        return false
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (!usingTouchpad()) noteTap(event)
+        val tap = noteTap(event)
+        // A tap on the picture while the soft keyboard is up only puts the keyboard away: what the
+        // touch started is cancelled rather than clicked, so the field being typed in stays as it was.
+        // Drags and two-finger gestures go through, to move the pointer or scroll with it open.
+        if (tap && keyboard?.shown == true) {
+            keyboard?.hide()
+            val cancel = MotionEvent.obtain(event)
+            cancel.action = MotionEvent.ACTION_CANCEL
+            return onTouchEvent(cancel).also { cancel.recycle() }
+        }
+        if (tap && !usingTouchpad()) lastTapY = touchDownY + keyboardPan
         if (keyboardPan != 0f) event.offsetLocation(0f, keyboardPan)
         if (event.isFromSource(android.view.InputDevice.SOURCE_MOUSE)) return onMouse(event)
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
