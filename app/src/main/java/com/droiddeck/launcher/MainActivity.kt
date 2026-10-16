@@ -732,7 +732,7 @@ class MainActivity : ComponentActivity() {
         steamGamesX64 = cachedX64
         backActionsInverted = SessionPrefs.backActionsInverted(this)
         orientation = SessionPrefs.orientation(this)
-        requestedOrientation = orientation
+        SessionPrefs.applyOrientation(this)
         launcherFullscreen = SessionPrefs.launcherFullscreen(this)
         downloadSource = DownloadSource.mode(this)
         downloadMirror = DownloadSource.mirror(this)
@@ -965,7 +965,7 @@ class MainActivity : ComponentActivity() {
                         onOrientation = { value ->
                             SessionPrefs.setOrientation(this, value)
                             orientation = value
-                            requestedOrientation = value
+                            SessionPrefs.applyOrientation(this)
                         },
                         onLauncherFullscreen = { on ->
                             SessionPrefs.setLauncherFullscreen(this, on)
@@ -1247,10 +1247,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        SessionPrefs.applyOrientation(this)
+    }
+
     override fun onResume() {
         super.onResume()
         orientation = SessionPrefs.orientation(this)
-        requestedOrientation = orientation
+        SessionPrefs.applyOrientation(this)
         refreshWifiDiscovery()
         com.droiddeck.launcher.stores.StoresState.refresh(this)
         com.droiddeck.launcher.stores.StoresState.libraryListener = { refreshAddedGames(); refresh() }
