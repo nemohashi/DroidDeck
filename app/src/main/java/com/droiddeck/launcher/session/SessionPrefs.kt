@@ -42,16 +42,39 @@ object SessionPrefs {
 
     private fun prefs(context: Context) = context.getSharedPreferences("session", Context.MODE_PRIVATE)
 
+    /** Automatic landscape on a phone-sized panel, and the way the device is held (portrait too) on
+     *  a foldable's unfolded inner screen. Not an ActivityInfo value: [requestedOrientation] resolves it. */
+    const val ORIENTATION_UNFOLDED_ANY = 1000
+
     val orientationOptions = listOf(
         ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE to R.string.setup_orientation_auto,
         ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE to R.string.setup_orientation_landscape,
         ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE to R.string.setup_orientation_reverse,
+        ORIENTATION_UNFOLDED_ANY to R.string.setup_orientation_unfolded_any,
     )
 
+    /** The saved choice, one of [orientationOptions]; an activity asks for [requestedOrientation]. */
     fun orientation(context: Context): Int =
         prefs(context).getInt("orientation", ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE)
             .takeIf { value -> orientationOptions.any { it.first == value } }
             ?: ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+
+    /**
+     * The orientation an activity asks for on the panel it is on now. [turns] = false for a screen
+     * that is drawn for landscape only (a session whose display keeps one size), where the unfolded
+     * choice stays automatic landscape. Asked again when the activity moves to the other panel.
+     */
+    fun requestedOrientation(context: Context, turns: Boolean = true): Int {
+        val saved = orientation(context)
+        if (saved != ORIENTATION_UNFOLDED_ANY) return saved
+        return if (turns && context.resources.configuration.smallestScreenWidthDp >= SessionDisplay.UNFOLDED_MIN_DP)
+            ActivityInfo.SCREEN_ORIENTATION_USER else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+    }
+
+    fun applyOrientation(activity: android.app.Activity, turns: Boolean = true) {
+        val wanted = requestedOrientation(activity, turns)
+        if (activity.requestedOrientation != wanted) activity.requestedOrientation = wanted
+    }
 
     fun setOrientation(context: Context, orientation: Int) {
         require(orientationOptions.any { it.first == orientation })

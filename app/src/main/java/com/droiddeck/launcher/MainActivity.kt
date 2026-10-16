@@ -532,7 +532,7 @@ class MainActivity : ComponentActivity() {
         steamGames = if (shortcutPicker) emptyList() else com.droiddeck.launcher.frontend.LibraryCache.load(this)
         backActionsInverted = SessionPrefs.backActionsInverted(this)
         orientation = SessionPrefs.orientation(this)
-        requestedOrientation = orientation
+        SessionPrefs.applyOrientation(this)
         launcherFullscreen = SessionPrefs.launcherFullscreen(this)
         animationsEnabled = SessionPrefs.animationsEnabled(this)
         gameStoresEnabled = SessionPrefs.gameStoresEnabled(this)
@@ -746,7 +746,7 @@ class MainActivity : ComponentActivity() {
                         onOrientation = { value ->
                             SessionPrefs.setOrientation(this, value)
                             orientation = value
-                            requestedOrientation = value
+                            SessionPrefs.applyOrientation(this)
                         },
                         onLauncherFullscreen = { on ->
                             SessionPrefs.setLauncherFullscreen(this, on)
@@ -978,10 +978,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        SessionPrefs.applyOrientation(this)
+    }
+
     override fun onResume() {
         super.onResume()
         orientation = SessionPrefs.orientation(this)
-        requestedOrientation = orientation
+        SessionPrefs.applyOrientation(this)
         refreshWifiDiscovery()
         // Back from a store's sign-in page: the Stores chips show the account at once. A store
         // install finishing while this screen is up rebuilds the Games list through the listener.

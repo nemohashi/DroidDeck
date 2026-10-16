@@ -1354,13 +1354,14 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     /**
      * Follow screen on a large panel (a Fold's inner screen) may turn with the device: a window
      * locked to landscape on a squarer panel is letterboxed by the system itself, which no output
-     * size can undo. Every other case keeps the landscape orientation picked in Setup.
+     * size can undo. Every other case keeps the landscape orientation picked in Setup: a session
+     * of one fixed size would only be letterboxed by turning.
      */
     private fun applyFollowOrientation(config: android.content.res.Configuration) {
         val wanted = if (SessionState.followScreen && config.smallestScreenWidthDp >= 600) {
             android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER
         } else {
-            SessionPrefs.orientation(this)
+            SessionPrefs.requestedOrientation(this, turns = false)
         }
         if (requestedOrientation != wanted) requestedOrientation = wanted
     }

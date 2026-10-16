@@ -47,7 +47,7 @@ class ControllerEditorActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestedOrientation = com.droiddeck.launcher.session.SessionPrefs.orientation(this)
+        com.droiddeck.launcher.session.SessionPrefs.applyOrientation(this, turns = false)
         immersive()
         val root = FrameLayout(this)
         root.setBackgroundColor(0xFF0B0F14.toInt())
