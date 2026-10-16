@@ -172,9 +172,13 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     /** The touch mode touches are routed by: the drawer's, or the game's while Steam's controls are up. */
     private var routedTouchMode = SessionPrefs.TOUCH_AUTO
     private var keyboard: KeyboardHost? = null
-    /** How far the picture is shifted up so the last touch stays above the soft keyboard, in pixels. */
+    /** How far the picture is shifted up so the last tap stays above the soft keyboard, in pixels. */
     private var keyboardPan = 0f
-    private var lastTouchY = -1f
+    private var lastTapY = -1f
+    private var touchDownX = 0f
+    private var touchDownY = 0f
+    private var touchDownAt = 0L
+    private var touchIsTap = false
     private var controllerSettings by mutableStateOf<ControllerPrefs.Settings?>(null)
     private val sessionClipboard by lazy {
         SessionClipboard(this) {
@@ -568,6 +572,8 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                     onAndroidKeyboard = { pcKeyboardOpen = false; keyboard?.toggle() },
                     onClose = { pcKeyboardOpen = false },
                 )
+                if (SessionState.mode == SessionService.MODE_DESKTOP && !drawerOpen && !pcKeyboardOpen && !loading.visible)
+                    com.droiddeck.launcher.ui.KeyboardFab { keyboard?.toggle() }
                 SessionDrawer(drawerOpen, drawerPage, drawerControllerActive, onPageChange = { drawerPage = it }, a = DrawerActions(
                     steam = SessionState.mode == SessionService.MODE_STEAM,
                     title = if (SessionState.mode == SessionService.MODE_RUN)
@@ -1696,7 +1702,10 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         if (drawerDirectionKey != KeyEvent.KEYCODE_UNKNOWN) releaseDrawerDirection()
         if (pcKeyboardOpen && PadBridge.isControllerMotionEvent(event)) return super.dispatchGenericMotionEvent(event)
         if (padBridge?.onMotionEvent(event) == true) return true
-        if (event.isFromSource(android.view.InputDevice.SOURCE_MOUSE) && !drawerOpen && onMouse(event)) return true
+        if (event.isFromSource(android.view.InputDevice.SOURCE_MOUSE) && !drawerOpen) {
+            if (keyboardPan != 0f) event.offsetLocation(0f, keyboardPan)
+            if (onMouse(event)) return true
+        }
         return super.dispatchGenericMotionEvent(event)
     }
 
@@ -1788,6 +1797,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         override fun onMove(x: Float, y: Float) = movePointer(x, y)
         override fun onButton(button: Int, pressed: Boolean, x: Float, y: Float) {
             movePointer(x, y)
+            if (pressed) lastTapY = y
             WaylandCompositor.nativeSendSceneInput(3, button, if (pressed) 1 else 0)
         }
         override fun onWheel(steps: Int) { WaylandCompositor.nativeSendSceneInput(4, steps, 0) }
@@ -2061,22 +2071,40 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     /**
      * The soft keyboard covers the bottom of the screen and the picture does not resize for it, so a
      * text field down there is typed into blind. The picture moves up, as far as the keyboard is
-     * tall, until the last touch (the tap that focused the field) sits above the keyboard.
+     * tall, until the last click (the one that focused the field) sits above the keyboard: the
+     * pointer's position with the touchpad, the finger's with direct touch, in picture pixels.
+     * Only taps count there: the swipe that opens the drawer starts wherever the finger happens to be.
      */
     private fun panForKeyboard(visible: Boolean, height: Int) {
         if (!::surfaceView.isInitialized || !::sessionRoot.isInitialized) return
-        val pan = if (!visible || lastTouchY < 0f) 0f else {
+        val pan = if (!visible || lastTapY < 0f) 0f else {
             val margin = KEYBOARD_PAN_MARGIN_DP * resources.displayMetrics.density
-            (lastTouchY + margin - (sessionRoot.height - height)).coerceIn(0f, height.toFloat())
+            (lastTapY + margin - (sessionRoot.height - height)).coerceIn(0f, height.toFloat())
         }
         if (pan == keyboardPan) return
         keyboardPan = pan
         surfaceView.translationY = -pan
-        Log.i(TAG, "keyboard pan ${pan.toInt()}px: keyboard ${height}px, last touch at ${lastTouchY.toInt()}")
+        Log.i(TAG, "keyboard pan ${pan.toInt()}px: keyboard ${height}px, last click at ${lastTapY.toInt()}")
+    }
+
+    private fun noteTap(event: MotionEvent) {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                touchDownX = event.x; touchDownY = event.y; touchDownAt = event.eventTime; touchIsTap = true
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> touchIsTap = false
+            MotionEvent.ACTION_MOVE -> {
+                val slop = android.view.ViewConfiguration.get(this).scaledTouchSlop
+                if (abs(event.x - touchDownX) > slop || abs(event.y - touchDownY) > slop) touchIsTap = false
+            }
+            MotionEvent.ACTION_UP ->
+                if (touchIsTap && event.eventTime - touchDownAt < TAP_MS) lastTapY = touchDownY + keyboardPan
+            MotionEvent.ACTION_CANCEL -> touchIsTap = false
+        }
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_DOWN) lastTouchY = event.y + keyboardPan
+        if (!usingTouchpad()) noteTap(event)
         if (keyboardPan != 0f) event.offsetLocation(0f, keyboardPan)
         if (event.isFromSource(android.view.InputDevice.SOURCE_MOUSE)) return onMouse(event)
         // Child views get the event first, so menus, keyboards and the on-screen pad still work.
@@ -2124,6 +2152,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                 movePointer(event.x, event.y)
             MotionEvent.ACTION_BUTTON_PRESS, MotionEvent.ACTION_BUTTON_RELEASE -> {
                 movePointer(event.x, event.y)
+                if (event.actionMasked == MotionEvent.ACTION_BUTTON_PRESS) lastTapY = event.y
                 val button = when (event.actionButton) {
                     MotionEvent.BUTTON_SECONDARY -> PointerGestures.BTN_RIGHT
                     MotionEvent.BUTTON_TERTIARY -> PointerGestures.BTN_MIDDLE
@@ -2608,6 +2637,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         private const val SCALE_FIT = 1
         private const val ALIGN_CENTER = 0
         private const val KEYBOARD_PAN_MARGIN_DP = 56f
+        private const val TAP_MS = 300L
         private val RUNTIME_LINES = PackageLines(
             R.string.session_runtime_downloading, R.string.session_runtime_downloading_mb,
             R.string.session_runtime_checking, R.string.session_runtime_unpacking,
