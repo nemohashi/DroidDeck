@@ -2409,6 +2409,8 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                 touchpad.bounds = rect
                 if (fresh) touchpad.place(rect.centerX(), rect.centerY())
             }
+            // The desktop's only: the pointer jumping to a finger would throw a game's aim.
+            touchpad.edgePx = if (SessionState.mode == SessionService.MODE_DESKTOP) EDGE_SCROLL_DP * resources.displayMetrics.density else 0f
             return touchpad.onTouch(event)
         }
         val rect = drawnRect() ?: return false
@@ -3280,6 +3282,8 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         private const val ALIGN_PICTURE_BOTTOM = 4
         private const val KEYBOARD_PAN_MARGIN_DP = 56f
         private const val TAP_MS = 300L
+        /** The strip along the left edge where a resting thumb turns the other finger's drag into scrolling. */
+        private const val EDGE_SCROLL_DP = 64f
         private val RUNTIME_LINES = PackageLines(
             R.string.session_runtime_downloading, R.string.session_runtime_downloading_mb,
             R.string.session_runtime_checking, R.string.session_runtime_unpacking,

@@ -5,6 +5,28 @@ import android.os.Looper
 import android.view.MotionEvent
 import kotlin.math.abs
 
+/**
+ * The screen as a touchpad, the way Bannerlator's desktop containers work: the arrow is where it
+ * was, and a finger dragged anywhere moves it from there.
+ *
+ *  - drag one finger .................. moves the pointer (relative, with a little acceleration)
+ *  - tap .............................. left click, where the pointer is
+ *  - second finger taps while one holds  right click
+ *  - two-finger tap ................... right click
+ *  - two fingers up / down ............ scroll wheel
+ *  - hold still, then drag ............ left-button drag
+ *  - double-tap, hold, drag ........... left-button drag as well
+ *  - one finger held, another slides .. left-button drag, as on a laptop's pad: the held finger is
+ *                                       the button, the other moves the pointer (a window by its
+ *                                       title bar or edge, a desktop icon). The sliding finger may
+ *                                       lift and slide again; lifting the held one drops.
+ *  - one finger resting in the left ... scroll wheel where the other finger touches: the pointer
+ *    edge strip ([edgePx]), another     jumps to it and stays while it slides up or down. It may
+ *    slides                             lift and touch again; lifting the resting one ends it.
+ *
+ * Positions handed to the listener are the pointer's, in the view's pixels; the caller keeps them
+ * inside the picture.
+ */
 class TouchpadGestures(
     private val slopPx: Float,
     private val listener: PointerGestures.Listener,
@@ -15,6 +37,8 @@ class TouchpadGestures(
         private set
     var bounds: android.graphics.RectF = android.graphics.RectF(0f, 0f, 1f, 1f)
     var sensitivity = 1.15f
+    /** Width of the left edge strip that holds a finger for edge scrolling, in view pixels; 0 = off. */
+    var edgePx = 0f
 
     private val handler = Handler(Looper.getMainLooper())
     private var lastX = 0f
@@ -39,6 +63,13 @@ class TouchpadGestures(
     private var moverLastY = 0f
     private var holdDrag = false
     private var clicked = 0
+    // Edge scrolling: the first finger rests in the strip, and a second one scrolls where it is.
+    private var downX = 0f
+    private var downY = 0f
+    private var edgeRest = false
+    private var edgeScroll = false
+    private var scrollerId = -1
+    private var scrollerLastY = 0f
     private val longPress = Runnable {
         held = true
         dragging = true
@@ -70,6 +101,9 @@ class TouchpadGestures(
         anchorId = -1
         moverId = -1
         lastTapAt = 0L
+        edgeRest = false
+        edgeScroll = false
+        scrollerId = -1
     }
 
     fun place(px: Float, py: Float) {
@@ -85,18 +119,34 @@ class TouchpadGestures(
                 downAt = event.eventTime
                 travelled = 0f; held = false; twoFingers = false; scrolled = false; secondWasTap = false
                 anchorId = event.getPointerId(0); moverId = -1; holdDrag = false
+                downX = event.x; downY = event.y
+                edgeScroll = false; scrollerId = -1
+                edgeRest = false
+                // A tap shortly before this touch: holding now drags (double-tap-and-hold).
                 if (event.eventTime - lastTapAt < DOUBLE_TAP_MS) {
                     dragging = true
                     listener.onButton(PointerGestures.BTN_LEFT, true, x, y)
                 } else {
                     dragging = false
-                    handler.postDelayed(longPress, HOLD_MS)
+                    // A thumb resting in the edge strip waits for the other hand, not a long press.
+                    edgeRest = event.x < edgePx
+                    if (!edgeRest) handler.postDelayed(longPress, HOLD_MS)
                 }
                 return true
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 handler.removeCallbacks(longPress)
                 val i = event.actionIndex
+                if (edgeRest || edgeScroll) {
+                    if (edgeRest && scrollerId == -1) {
+                        edgeScroll = true
+                        scrollerId = event.getPointerId(i)
+                        scrollerLastY = event.getY(i)
+                        place(event.getX(i), event.getY(i))
+                        listener.onMove(x, y)
+                    }
+                    return true
+                }
                 if (moverId == -1 && event.getPointerId(i) != anchorId) {
                     moverId = event.getPointerId(i)
                     moverStartX = event.getX(i); moverStartY = event.getY(i)
@@ -113,6 +163,27 @@ class TouchpadGestures(
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
+                if (edgeScroll) {
+                    val si = if (edgeRest && scrollerId != -1) event.findPointerIndex(scrollerId) else -1
+                    if (si >= 0) {
+                        val steps = ((event.getY(si) - scrollerLastY) / SCROLL_STEP_PX).toInt()
+                        if (steps != 0) {
+                            // Finger down = content down, as the two-finger scroll.
+                            listener.onWheel(-steps)
+                            scrollerLastY += steps * SCROLL_STEP_PX
+                        }
+                    }
+                    return true
+                }
+                if (edgeRest) {
+                    // Alone, the resting finger may still turn out to be a drag of the pointer.
+                    if (abs(event.x - downX) + abs(event.y - downY) <= slopPx * EDGE_REST_SLOP) {
+                        travelled += abs(event.x - lastX) + abs(event.y - lastY)
+                        lastX = event.x; lastY = event.y
+                        return true
+                    }
+                    edgeRest = false
+                }
                 val ai = event.findPointerIndex(anchorId)
                 val mi = if (moverId == -1) -1 else event.findPointerIndex(moverId)
                 if (ai >= 0 && mi >= 0) {
@@ -169,6 +240,13 @@ class TouchpadGestures(
             }
             MotionEvent.ACTION_POINTER_UP -> {
                 val gone = event.getPointerId(event.actionIndex)
+                if (edgeScroll) {
+                    // The scrolling finger may touch again; once the resting one lifts, nothing more
+                    // happens until every finger is up.
+                    if (gone == scrollerId) scrollerId = -1
+                    if (gone == anchorId) edgeRest = false
+                    return true
+                }
                 if (holdDrag) {
                     if (gone == anchorId) {
                         listener.onButton(PointerGestures.BTN_LEFT, false, x, y)
@@ -200,6 +278,7 @@ class TouchpadGestures(
                 handler.removeCallbacks(longPress)
                 val cancelled = event.actionMasked == MotionEvent.ACTION_CANCEL
                 when {
+                    edgeScroll -> {}
                     dragging -> listener.onButton(PointerGestures.BTN_LEFT, false, x, y)
                     twoFingers -> {
                         if (secondWasTap && !scrolled && !cancelled && event.eventTime - downAt < TAP_MS * 2) {
@@ -213,6 +292,7 @@ class TouchpadGestures(
                 }
                 dragging = false; held = false; twoFingers = false
                 holdDrag = false; anchorId = -1; moverId = -1
+                edgeRest = false; edgeScroll = false; scrollerId = -1
                 return true
             }
         }
@@ -225,5 +305,7 @@ class TouchpadGestures(
         private const val CLICK_MS = 50L
         private const val DOUBLE_TAP_MS = 300L
         private const val SCROLL_STEP_PX = 36f
+        /** How far a resting edge finger may drift, in touch slops, before it is a pointer drag. */
+        private const val EDGE_REST_SLOP = 2f
     }
 }

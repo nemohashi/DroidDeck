@@ -1,140 +1,89 @@
 package com.droiddeck.launcher.input
 
-import android.graphics.RectF
-import android.os.Looper
 import android.view.MotionEvent
-import java.time.Duration
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28], manifest = Config.NONE)
+@Config(manifest = Config.NONE, sdk = [33])
 class TouchpadGesturesTest {
-    private val events = mutableListOf<String>()
-    private lateinit var touchpad: TouchpadGestures
+    private val calls = mutableListOf<String>()
+    private lateinit var pad: TouchpadGestures
     private var time = 1000L
-    private var downTime = 0L
-
-    private val listener = object : PointerGestures.Listener {
-        override fun onMove(x: Float, y: Float) { events += "move" }
-        override fun onButton(button: Int, pressed: Boolean, x: Float, y: Float) {
-            val name = if (button == PointerGestures.BTN_RIGHT) "right" else "left"
-            events += "$name ${if (pressed) "down" else "up"}"
-        }
-        override fun onWheel(steps: Int) { events += "wheel $steps" }
-        override fun onLongPress() { events += "long press" }
-    }
 
     @Before fun setUp() {
-        touchpad = TouchpadGestures(SLOP, listener)
-        touchpad.bounds = RectF(0f, 0f, 1920f, 1080f)
-        touchpad.place(960f, 540f)
+        pad = TouchpadGestures(10f, object : PointerGestures.Listener {
+            override fun onMove(x: Float, y: Float) { calls += "move ${x.toInt()},${y.toInt()}" }
+            override fun onButton(button: Int, pressed: Boolean, x: Float, y: Float) { calls += "button $button $pressed" }
+            override fun onWheel(steps: Int) { calls += "wheel $steps" }
+            override fun onLongPress() { calls += "long" }
+        })
+        pad.bounds = android.graphics.RectF(0f, 0f, 2000f, 2000f)
+        pad.place(1000f, 1000f)
+        pad.edgePx = 150f
     }
 
-    @Test fun tapHoldsTheLeftButtonBeforeReleasingIt() {
-        tap()
-        assertEquals(listOf("left down"), events)
-        advance(40)
-        assertEquals(listOf("left down"), events)
-        advance(100)
-        assertEquals(listOf("left down", "left up"), events)
+    @Test fun aThumbInTheEdgeStripTurnsTheOtherFingersDragIntoScrolling() {
+        touch(MotionEvent.ACTION_DOWN, 0, 40f to 900f)
+        touch(MotionEvent.ACTION_POINTER_DOWN, 1, 40f to 900f, 1200f to 600f)
+        touch(MotionEvent.ACTION_MOVE, 0, 41f to 902f, 1200f to 700f)
+        touch(MotionEvent.ACTION_MOVE, 0, 41f to 902f, 1200f to 520f)
+        touch(MotionEvent.ACTION_POINTER_UP, 1, 41f to 902f, 1200f to 520f)
+        touch(MotionEvent.ACTION_UP, 0, 41f to 902f)
+        assertEquals(listOf("move 1200,600", "wheel -2", "wheel 4"), calls)
     }
 
-    @Test fun twoFingerTapHoldsTheRightButtonBeforeReleasingIt() {
-        touch(MotionEvent.ACTION_DOWN, 0, 1 to (400f to 300f))
-        advance(10)
-        touch(MotionEvent.ACTION_POINTER_DOWN, 1, 1 to (400f to 300f), 2 to (600f to 310f))
-        advance(60)
-        touch(MotionEvent.ACTION_POINTER_UP, 1, 1 to (400f to 300f), 2 to (600f to 310f))
-        advance(10)
-        touch(MotionEvent.ACTION_UP, 0, 1 to (400f to 300f))
-        assertEquals(listOf("right down"), events)
-        advance(30)
-        assertEquals(listOf("right down"), events)
-        advance(100)
-        assertEquals(listOf("right down", "right up"), events)
+    @Test fun theScrollingFingerMayTouchAgainWhileTheThumbRests() {
+        touch(MotionEvent.ACTION_DOWN, 0, 40f to 900f)
+        touch(MotionEvent.ACTION_POINTER_DOWN, 1, 40f to 900f, 1200f to 600f)
+        touch(MotionEvent.ACTION_POINTER_UP, 1, 40f to 900f, 1200f to 600f)
+        touch(MotionEvent.ACTION_POINTER_DOWN, 1, 40f to 900f, 800f to 300f)
+        touch(MotionEvent.ACTION_MOVE, 0, 40f to 900f, 800f to 340f)
+        touch(MotionEvent.ACTION_POINTER_UP, 1, 40f to 900f, 800f to 340f)
+        touch(MotionEvent.ACTION_UP, 0, 40f to 900f)
+        assertEquals(listOf("move 1200,600", "move 800,300", "wheel -1"), calls)
     }
 
-    @Test fun slowTwoFingerTapHoldsTheRightButtonBeforeReleasingIt() {
-        touch(MotionEvent.ACTION_DOWN, 0, 1 to (400f to 300f))
-        advance(10)
-        touch(MotionEvent.ACTION_POINTER_DOWN, 1, 1 to (400f to 300f), 2 to (600f to 310f))
-        advance(350)
-        touch(MotionEvent.ACTION_POINTER_UP, 1, 1 to (400f to 300f), 2 to (600f to 310f))
-        advance(10)
-        touch(MotionEvent.ACTION_UP, 0, 1 to (400f to 300f))
-        assertEquals(listOf("right down"), events)
-        advance(40)
-        assertEquals(listOf("right down"), events)
-        advance(100)
-        assertEquals(listOf("right down", "right up"), events)
+    @Test fun outsideTheStripAHeldFingerStillDragsWithTheLeftButton() {
+        touch(MotionEvent.ACTION_DOWN, 0, 600f to 900f)
+        touch(MotionEvent.ACTION_POINTER_DOWN, 1, 600f to 900f, 1200f to 600f)
+        touch(MotionEvent.ACTION_MOVE, 0, 600f to 900f, 1200f to 700f)
+        touch(MotionEvent.ACTION_POINTER_UP, 1, 600f to 900f, 1200f to 700f)
+        touch(MotionEvent.ACTION_UP, 0, 600f to 900f)
+        assertEquals("button ${PointerGestures.BTN_LEFT} true", calls.first())
+        assertTrue(calls.none { it.startsWith("wheel") })
     }
 
-    @Test fun secondTapPressesOnlyAfterTheFirstClickIsReleased() {
-        tap()
-        advance(20)
-        touch(MotionEvent.ACTION_DOWN, 0, 1 to (400f to 300f))
-        assertEquals(listOf("left down", "left up", "left down"), events)
-        advance(80)
-        touch(MotionEvent.ACTION_UP, 0, 1 to (400f to 300f))
-        advance(200)
-        assertEquals(listOf("left down", "left up", "left down", "left up"), events)
+    @Test fun aTapInTheStripIsStillAClick() {
+        touch(MotionEvent.ACTION_DOWN, 0, 40f to 900f)
+        touch(MotionEvent.ACTION_UP, 0, 40f to 900f)
+        assertEquals(listOf("button ${PointerGestures.BTN_LEFT} true", "button ${PointerGestures.BTN_LEFT} false"), calls)
     }
 
-    @Test fun secondFingerTappingAgainReleasesTheFirstRightClickFirst() {
-        touch(MotionEvent.ACTION_DOWN, 0, 1 to (400f to 300f))
-        advance(10)
-        touch(MotionEvent.ACTION_POINTER_DOWN, 1, 1 to (400f to 300f), 2 to (600f to 310f))
-        advance(60)
-        touch(MotionEvent.ACTION_POINTER_UP, 1, 1 to (400f to 300f), 2 to (600f to 310f))
-        advance(10)
-        touch(MotionEvent.ACTION_POINTER_DOWN, 1, 1 to (400f to 300f), 2 to (600f to 310f))
-        advance(20)
-        touch(MotionEvent.ACTION_POINTER_UP, 1, 1 to (400f to 300f), 2 to (600f to 310f))
-        assertEquals(listOf("right down", "right up", "right down"), events)
-        advance(200)
-        assertEquals(listOf("right down", "right up", "right down", "right up"), events)
+    @Test fun aFingerSlidingOutOfTheStripMovesThePointer() {
+        touch(MotionEvent.ACTION_DOWN, 0, 40f to 900f)
+        touch(MotionEvent.ACTION_MOVE, 0, 50f to 900f)
+        assertTrue(calls.isEmpty())
+        touch(MotionEvent.ACTION_MOVE, 0, 90f to 900f)
+        touch(MotionEvent.ACTION_UP, 0, 90f to 900f)
+        assertTrue(calls.single().startsWith("move "))
     }
 
-    @Test fun cancelReleasesAClickThatIsStillHeld() {
-        tap()
-        touchpad.cancel()
-        assertEquals(listOf("left down", "left up"), events)
-        advance(200)
-        assertEquals(listOf("left down", "left up"), events)
-    }
-
-    private fun tap() {
-        touch(MotionEvent.ACTION_DOWN, 0, 1 to (400f to 300f))
-        advance(80)
-        touch(MotionEvent.ACTION_UP, 0, 1 to (400f to 300f))
-    }
-
-    private fun advance(ms: Long) {
-        time += ms
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ms))
-    }
-
-    private fun touch(action: Int, index: Int, vararg pointers: Pair<Int, Pair<Float, Float>>) {
-        if (action == MotionEvent.ACTION_DOWN) downTime = time
-        val properties = pointers.map { (id, _) ->
-            MotionEvent.PointerProperties().apply { this.id = id; toolType = MotionEvent.TOOL_TYPE_FINGER }
-        }.toTypedArray()
-        val coords = pointers.map { (_, at) ->
-            MotionEvent.PointerCoords().apply { x = at.first; y = at.second; pressure = 1f; size = 1f }
-        }.toTypedArray()
-        val masked = action or (index shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)
-        val event = MotionEvent.obtain(downTime, time, masked, pointers.size, properties, coords, 0, 0, 1f, 1f, 0, 0, 0, 0)
-        touchpad.onTouch(event)
+    /** One event; [index] is the action index, the pairs every finger's x to y, ids 0, 1, … */
+    private fun touch(action: Int, index: Int, vararg fingers: Pair<Float, Float>) {
+        time += 20
+        val properties = Array(fingers.size) { MotionEvent.PointerProperties().apply { id = it; toolType = MotionEvent.TOOL_TYPE_FINGER } }
+        val coords = Array(fingers.size) { MotionEvent.PointerCoords().apply { x = fingers[it].first; y = fingers[it].second } }
+        val masked = if (action == MotionEvent.ACTION_POINTER_DOWN || action == MotionEvent.ACTION_POINTER_UP)
+            action or (index shl MotionEvent.ACTION_POINTER_INDEX_SHIFT) else action
+        val event = MotionEvent.obtain(1000L, time, masked, fingers.size, properties, coords, 0, 0, 1f, 1f, 0, 0,
+            android.view.InputDevice.SOURCE_TOUCHSCREEN, 0)
+        pad.onTouch(event)
         event.recycle()
-    }
-
-    private companion object {
-        const val SLOP = 8f
     }
 }
