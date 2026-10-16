@@ -41,4 +41,19 @@ class OrientationTest {
         }
         assertEquals(ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE, SessionPrefs.orientation(context))
     }
+
+    @Test fun unfoldedAnyTurnsOnlyOnALargePanelAndWhereTheScreenMayTurn() {
+        SessionPrefs.setOrientation(context, SessionPrefs.ORIENTATION_UNFOLDED_ANY)
+        assertEquals(SessionPrefs.ORIENTATION_UNFOLDED_ANY, SessionPrefs.orientation(context))
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_USER, SessionPrefs.requestedOrientation(panel(750)))
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE, SessionPrefs.requestedOrientation(panel(750), turns = false))
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE, SessionPrefs.requestedOrientation(panel(411)))
+        SessionPrefs.setOrientation(context, ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE)
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE, SessionPrefs.requestedOrientation(panel(750)))
+    }
+
+    private fun panel(smallestWidthDp: Int): Context =
+        context.createConfigurationContext(android.content.res.Configuration(context.resources.configuration).apply {
+            smallestScreenWidthDp = smallestWidthDp
+        })
 }
