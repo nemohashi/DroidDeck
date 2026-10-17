@@ -20,9 +20,9 @@ import androidx.compose.ui.unit.dp
 import com.droiddeck.launcher.R
 
 /**
- * A small button that stays on the desktop session, at the middle of the right edge, for the
- * soft keyboard: the drawer's Android button is two gestures away, and nothing of the app's is
- * otherwise on the desktop's screen. The middle is still clear of the keyboard itself.
+ * A small button that stays on the desktop session, at the right edge just below the middle, for
+ * the soft keyboard: the drawer's Android button is two gestures away, and nothing of the app's is
+ * otherwise on the desktop's screen. Just below the middle is still clear of the keyboard itself.
  */
 @Composable
 internal fun KeyboardFab(onClick: () -> Unit) {
@@ -32,7 +32,7 @@ internal fun KeyboardFab(onClick: () -> Unit) {
             shape = CircleShape,
             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
             contentColor = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.align(Alignment.CenterEnd).offset(x = (-10).dp).size(44.dp).testTag("desktop-keyboard"),
+            modifier = Modifier.align(Alignment.CenterEnd).offset(x = (-10).dp, y = 44.dp).size(44.dp).testTag("desktop-keyboard"),
         ) {
             Icon(Icons.Outlined.Keyboard, contentDescription = stringResource(R.string.pckb_android), modifier = Modifier.padding(10.dp))
         }
