@@ -466,7 +466,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
             setOnTouchListener { v, event ->
                 val at = IntArray(2).also { v.getLocationInWindow(it) }
                 event.offsetLocation(at[0].toFloat(), at[1].toFloat())
-                onTouchEvent(event)
+                this@SessionActivity.onTouchEvent(event)
                 true
             }
         }
