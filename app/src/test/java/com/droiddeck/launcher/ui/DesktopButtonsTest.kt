@@ -31,6 +31,7 @@ class DesktopButtonsTest {
                 onKeyboard = { calls += "keyboard" },
                 onSend = { calls += "send" },
                 onScroll = { scrolled += it },
+                onHold = { calls += if (it) "hold" else "release" },
                 onBuzz = {},
             )
         }
@@ -51,7 +52,7 @@ class DesktopButtonsTest {
         compose.onNodeWithTag("desktop-keyboard").performTouchInput { down(center); up() }
         compose.onNodeWithTag("desktop-send").performTouchInput { down(center); up() }
         compose.waitForIdle()
-        assertEquals(listOf("keyboard", "send"), calls)
+        assertEquals(listOf("hold", "keyboard", "release", "hold", "send", "release"), calls)
     }
 
     @Test fun aSlideFromTheKeyboardButtonScrollsUntilTheFingerLifts() {
@@ -66,7 +67,7 @@ class DesktopButtonsTest {
         compose.onNodeWithTag("desktop-keyboard").performTouchInput { up() }
         compose.mainClock.advanceTimeBy(1000)
         assertEquals(second, scrolled, 0.01f)
-        assertTrue(calls.none { it == "keyboard" })
+        assertEquals(listOf("hold", "release"), calls)
     }
 
     @Test fun aButtonHeldStillForTwoSecondsMovesToWhereItIsDropped() {
@@ -80,6 +81,6 @@ class DesktopButtonsTest {
         compose.mainClock.advanceTimeBy(100)
         val spot = SessionPrefs.desktopButton(context, "send", portrait = true)
         assertEquals(false, spot?.first)
-        assertTrue(calls.isEmpty())
+        assertEquals(listOf("hold", "release"), calls)
     }
 }

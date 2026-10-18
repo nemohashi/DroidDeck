@@ -77,13 +77,15 @@ internal fun DesktopButtons(
     onKeyboard: () -> Unit,
     onSend: () -> Unit,
     onScroll: (units: Float) -> Unit,
+    /** A finger came down on a button (true) or the last one lifted (false). */
+    onHold: (Boolean) -> Unit,
     onBuzz: (ms: Long) -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         DesktopButton("keyboard", Icons.Outlined.Keyboard, stringResource(R.string.pckb_android), 44.dp,
-            onKeyboard, onScroll, onBuzz)
+            onKeyboard, onScroll, onHold, onBuzz)
         DesktopButton("send", Icons.AutoMirrored.Outlined.Send, stringResource(R.string.desktop_send), (-16).dp,
-            onSend, null, onBuzz)
+            onSend, null, onHold, onBuzz)
     }
 }
 
@@ -135,9 +137,11 @@ private fun BoxWithConstraintsScope.DesktopButton(
     fromMiddle: Dp,
     onClick: () -> Unit,
     onScroll: ((Float) -> Unit)?,
+    onHold: (Boolean) -> Unit,
     onBuzz: (Long) -> Unit,
 ) {
     val context = LocalContext.current
+    val hold by rememberUpdatedState(onHold)
     val density = LocalDensity.current
     val portrait = maxHeight > maxWidth
     val height = constraints.maxHeight.toFloat()
@@ -161,9 +165,11 @@ private fun BoxWithConstraintsScope.DesktopButton(
     val scope = rememberCoroutineScope()
     val speed = remember { mutableFloatStateOf(0f) }
     var wheel by remember { mutableStateOf<Job?>(null) }
+    var sent = 0f
     fun startWheel() {
         if (wheel != null) return
         scrolling = true
+        sent = 0f
         wheel = scope.launch {
             var last = withFrameNanos { it }
             while (true) {
@@ -172,10 +178,12 @@ private fun BoxWithConstraintsScope.DesktopButton(
                 last = now
                 val units = speed.floatValue * seconds
                 if (units != 0f) scroll?.invoke(units)
+                sent += units
             }
         }
     }
     fun stopWheel() {
+        if (wheel != null) android.util.Log.i("DesktopInput", "button $name: scrolled ${sent.toInt()} units")
         wheel?.cancel()
         wheel = null
         speed.floatValue = 0f
@@ -196,8 +204,9 @@ private fun BoxWithConstraintsScope.DesktopButton(
             }
             .pointerInput(portrait) {
                 awaitEachGesture {
+                    val down = awaitFirstDown()
+                    hold(true)
                     try {
-                        val down = awaitFirstDown()
                         down.consume()
                         var lastY = down.position.y
                         val start = withTimeoutOrNull(MOVE_HOLD_MS) {
@@ -224,6 +233,7 @@ private fun BoxWithConstraintsScope.DesktopButton(
                             tier = next
                             speed.floatValue = scrollSpeed(dy, area.button, viewConfiguration.touchSlop)
                         }
+                        android.util.Log.i("DesktopInput", "button $name: ${start ?: "held"} (down at ${down.position.x.toInt()},${down.position.y.toInt()} of ${area.size.toInt()})")
                         when (start) {
                             Start.TAP -> click()
                             Start.SLIDE -> if (scroll != null) {
@@ -263,6 +273,7 @@ private fun BoxWithConstraintsScope.DesktopButton(
                         // A gesture cut short (the window resized, the touch cancelled) stops too.
                         stopWheel()
                         carried = null
+                        hold(false)
                     }
                 }
             },
