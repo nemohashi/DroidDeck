@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.unit.dp
 import com.droiddeck.launcher.session.SessionPrefs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -57,7 +58,7 @@ class DesktopButtonsTest {
         compose.mainClock.autoAdvance = false
         compose.onNodeWithTag("desktop-keyboard").performTouchInput { down(center) }
         compose.mainClock.advanceTimeBy(50)
-        compose.onNodeWithTag("desktop-keyboard").performTouchInput { moveBy(Offset(0f, height * 2f)) }
+        compose.onNodeWithTag("desktop-keyboard").performTouchInput { moveBy(Offset(0f, 88.dp.toPx())) }
         compose.mainClock.advanceTimeBy(1000)
         // Two button heights: the normal pace, ten notches (100 units) a second, a frame at a time.
         val second = scrolled
