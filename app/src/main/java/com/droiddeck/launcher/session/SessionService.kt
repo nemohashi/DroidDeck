@@ -196,11 +196,13 @@ class SessionService : Service() {
                 updateDownloadMonitoring()
                 suspendAttemptFailed = false
                 updateSuspendPolicy()
+                refreshNotification()
                 return START_NOT_STICKY
             }
             ACTION_SUSPEND_NOW -> {
                 if (!SessionState.running) return START_NOT_STICKY
                 suspendDownloadNow = true
+                manualPauseRequested = true
                 updateSuspendPolicy()
                 return START_NOT_STICKY
             }
@@ -212,6 +214,12 @@ class SessionService : Service() {
         if (com.droiddeck.launcher.runtime.LinuxRuntimeInstaller.isMaintaining()) {
             stopSelf(startId)
             return START_NOT_STICKY
+        }
+        // The policy decides the notification's actions, and when the app is in front the system
+        // may post this notification seconds later with exactly what it is given here, over any
+        // notify() in between: read the policy first.
+        if (!SessionState.running) {
+            suspendPolicy = SessionPrefs.suspendPolicy(this, intent?.getStringExtra(EXTRA_MODE) ?: MODE_STEAM)
         }
         startForeground(NOTIFICATION_ID, buildNotification())
         if (SessionState.running) return START_NOT_STICKY
@@ -1349,6 +1357,8 @@ class SessionService : Service() {
             SessionPrefs.SUSPEND_AUTO -> hidden && !downloadsBlockingSuspend
             SessionPrefs.SUSPEND_NATIVE -> hidden && nativeSleepReady && !downloadsBlockingSuspend
             SessionPrefs.SUSPEND_MANUAL -> manualPauseRequested && !downloadsBlockingSuspend
+            // Never pauses only on the notification's request, and like Manual waits for Resume.
+            SessionPrefs.SUSPEND_NEVER -> manualPauseRequested
             else -> false
         }
         if (suspendOperationPending || suspendAttemptFailed || shouldSuspend == SessionState.suspended) return
@@ -1611,6 +1621,14 @@ class SessionService : Service() {
             updateSuspendPolicy()
             return
         }
+        // Never: the session is used from elsewhere (a VNC client); a swipe in recents while
+        // doing something else on the phone must not end it. The notification's Stop still does.
+        if (suspendPolicy == SessionPrefs.SUSPEND_NEVER && SessionState.running) {
+            Log.i(TAG, "task removed - the session keeps running (background behavior: never)")
+            activityVisible = false
+            updateSuspendPolicy()
+            return
+        }
         Log.i(TAG, "task removed - ending the session")
         stopSession(0)
         super.onTaskRemoved(rootIntent)
@@ -1723,8 +1741,8 @@ class SessionService : Service() {
             .apply {
                 if (SessionState.suspended) {
                     addAction(Notification.Action.Builder(null, getString(R.string.resume_session), resume).build())
-                } else if (downloadActive && steamDownloadsInBackground &&
-                    suspendPolicy != SessionPrefs.SUSPEND_NEVER) {
+                } else if (suspendPolicy == SessionPrefs.SUSPEND_NEVER ||
+                    (downloadActive && steamDownloadsInBackground)) {
                     val suspend = PendingIntent.getService(
                         this@SessionService, 3,
                         Intent(this@SessionService, SessionService::class.java).setAction(ACTION_SUSPEND_NOW),

@@ -17,6 +17,7 @@
     <string name="session_notification">Steamが実行中です</string>
     <string name="session_notification_paused">セッションが一時停止中 - 準備ができたらタップして再開</string>
     <string name="resume_session">再開</string>
+    <string name="suspend_now">今すぐ一時停止</string>
     <string name="stop_session">セッションを終了</string>
     <string name="frame_gen_title">フレーム生成</string>
     <string name="frame_gen_hint">使用するフレーム生成モードを選択してください</string>
@@ -267,8 +268,8 @@
     <string name="mode_suspend_hint">アプリが非表示または画面オフ時の動作。</string>
     <string name="mode_suspend_manual">手動</string>
     <string name="mode_suspend_native">ネイティブ</string>
-    <string name="mode_suspend_steam_note">自動では一時停止し、表示すると再開します。ネイティブでは先にSteamをスリープに備えさせます。手動では「再開」をタップするまで待機します。「しない」では実行し続けます。</string>
-    <string name="mode_suspend_note">自動ではバックグラウンドで一時停止し、表示すると再開します。手動では「再開」をタップするまで待機します。「しない」では実行し続けます。</string>
+    <string name="mode_suspend_steam_note">自動では一時停止し、表示すると再開します。ネイティブでは先にSteamをスリープに備えさせます。手動では「再開」をタップするまで待機します。「しない」では実行し続けます（通知の「今すぐ一時停止」で止められます）。</string>
+    <string name="mode_suspend_note">自動ではバックグラウンドで一時停止し、表示すると再開します。手動では「再開」をタップするまで待機します。「しない」では実行し続けます（通知の「今すぐ一時停止」で止められます）。</string>
     <string name="mode_startup">起動</string>
     <string name="mode_steam_startup">DroidDeck起動時にSteamを起動</string>
     <string name="mode_steam_startup_hint">DroidDeckの起動時にSteamセッションを開きます。</string>
