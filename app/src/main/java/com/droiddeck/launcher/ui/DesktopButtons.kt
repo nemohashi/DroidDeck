@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.Keyboard
@@ -18,12 +19,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -44,7 +46,6 @@ import androidx.compose.ui.unit.dp
 import com.droiddeck.launcher.R
 import com.droiddeck.launcher.session.SessionPrefs
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -57,18 +58,23 @@ import kotlin.math.sign
  * app's is on the desktop's screen, and the drawer's Android button is two gestures away.
  *
  *  - tap ..................... the button's action
- *  - slide up or down ........ (the keyboard button) the scroll wheel under the pointer, held like a
- *                              joystick: about one button's height from where the finger came down
- *                              scrolls slowly, two at a normal pace, three fast, until it lifts
+ *  - slide up or down ........ (the keyboard button) scrolls what is under the pointer, smoothly,
+ *                              held like a joystick: the further from where the finger came down,
+ *                              the faster - slow at about one button's height, normal at two, fast
+ *                              at three, with a buzz at each - until it lifts
  *  - hold still two seconds .. picks the button up: it goes where it is dropped, against the nearer
  *                              edge, remembered apart for portrait and landscape. Two seconds keeps
  *                              a slow start of a scroll from turning into a move.
+ *
+ * The buttons sit on the screen's edge, inside Android's back-gesture strip, so they are excluded
+ * from it: a thumb that drifts sideways mid-scroll would otherwise be taken for Back, which cancels
+ * the touch and the scroll with it.
  */
 @Composable
 internal fun DesktopButtons(
     onKeyboard: () -> Unit,
     onSend: () -> Unit,
-    onScroll: (steps: Int) -> Unit,
+    onScroll: (units: Float) -> Unit,
     onBuzz: (ms: Long) -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -79,26 +85,40 @@ internal fun DesktopButtons(
     }
 }
 
-/** The scroll pace, signed like the wheel (down = positive), for a finger [dy] pixels from where it
- *  came down: none inside the touch slop, then slow, normal and fast by the button's height. */
-internal fun scrollPace(dy: Float, button: Float, slop: Float): Int {
+/** Wheel notches a second at one, two and three button heights from where the finger came down. */
+private val SCROLL_NOTCHES = floatArrayOf(3f, 10f, 25f)
+
+/**
+ * The joystick's speed in scroll axis units a second (a wheel notch is 10, down = positive) for a
+ * finger [dy] pixels from where it came down: nothing inside the touch slop, then rising smoothly
+ * from half a notch a second through [SCROLL_NOTCHES], and no faster past three button heights.
+ */
+internal fun scrollSpeed(dy: Float, button: Float, slop: Float): Float {
     val distance = abs(dy)
-    val pace = when {
-        distance <= slop -> 0
-        distance < button * 1.5f -> 1
-        distance < button * 2.5f -> 2
-        else -> 3
+    if (distance <= slop) return 0f
+    val heights = distance / button
+    val notches = when {
+        heights >= SCROLL_NOTCHES.size -> SCROLL_NOTCHES.last()
+        heights < 1f -> 0.5f + (SCROLL_NOTCHES[0] - 0.5f) * heights
+        else -> {
+            val i = heights.toInt()
+            SCROLL_NOTCHES[i - 1] + (SCROLL_NOTCHES[i] - SCROLL_NOTCHES[i - 1]) * (heights - i)
+        }
     }
-    return pace * dy.sign.toInt()
+    return notches * 10f * dy.sign
 }
 
-/** Wheel steps per pace: one every this many milliseconds, slow to fast. */
-private val SCROLL_EVERY_MS = longArrayOf(250, 100, 40)
+/** Which button height [dy] has reached, 0 to 3: the joystick buzzes as it crosses each. */
+internal fun scrollTier(dy: Float, button: Float): Int = (abs(dy) / button).toInt().coerceAtMost(SCROLL_NOTCHES.size)
+
 private const val MOVE_HOLD_MS = 2000L
 private val BUTTON = 44.dp
 private val EDGE_MARGIN = 10.dp
 
 private enum class Start { TAP, SLIDE, NONE }
+
+/** Where the buttons may go: the screen they sit on, and their own size and margin, in pixels. */
+private data class Area(val width: Float, val height: Float, val size: Float, val margin: Float, val portrait: Boolean)
 
 /** One button; [fromMiddle] places it until it is moved, its middle that far below the screen's. */
 @Composable
@@ -108,46 +128,55 @@ private fun BoxWithConstraintsScope.DesktopButton(
     label: String,
     fromMiddle: Dp,
     onClick: () -> Unit,
-    onScroll: ((Int) -> Unit)?,
+    onScroll: ((Float) -> Unit)?,
     onBuzz: (Long) -> Unit,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
     val portrait = maxHeight > maxWidth
-    val width = constraints.maxWidth.toFloat()
     val height = constraints.maxHeight.toFloat()
-    val size = with(density) { BUTTON.toPx() }
-    val margin = with(density) { EDGE_MARGIN.toPx() }
+    val area by rememberUpdatedState(Area(constraints.maxWidth.toFloat(), height,
+        with(density) { BUTTON.toPx() }, with(density) { EDGE_MARGIN.toPx() }, portrait))
     val saved = remember(portrait) { SessionPrefs.desktopButton(context, name, portrait) }
     var right by remember(portrait) { mutableStateOf(saved?.first ?: true) }
     var middle by remember(portrait) { mutableStateOf(saved?.second ?: ((height / 2 + with(density) { fromMiddle.toPx() }) / height)) }
     var carried by remember { mutableStateOf<Offset?>(null) }
-    var pace by remember { mutableIntStateOf(0) }
+    var scrolling by remember { mutableStateOf(false) }
     val click by rememberUpdatedState(onClick)
     val scroll by rememberUpdatedState(onScroll)
 
-    fun placed() = Offset(
-        if (right) width - margin - size else margin,
-        (middle * height - size / 2).coerceIn(margin, (height - margin - size).coerceAtLeast(margin)),
+    fun placed(a: Area) = Offset(
+        if (right) a.width - a.margin - a.size else a.margin,
+        (middle * a.height - a.size / 2).coerceIn(a.margin, (a.height - a.margin - a.size).coerceAtLeast(a.margin)),
     )
 
-    // Started from the gesture itself, not from a recomposition: the wheel turns on the move that
-    // asked for it, a frame sooner.
+    // The wheel turns a frame at a time while the finger is out, at the speed the finger last set:
+    // a little each frame is what makes it smooth.
     val scope = rememberCoroutineScope()
+    val speed = remember { mutableFloatStateOf(0f) }
     var wheel by remember { mutableStateOf<Job?>(null) }
-    fun turn(next: Int) {
-        if (next == pace) return
-        wheel?.cancel()
-        wheel = if (next == 0) null else scope.launch {
+    fun startWheel() {
+        if (wheel != null) return
+        scrolling = true
+        wheel = scope.launch {
+            var last = withFrameNanos { it }
             while (true) {
-                scroll?.invoke(next.sign)
-                delay(SCROLL_EVERY_MS[abs(next) - 1])
+                val now = withFrameNanos { it }
+                val seconds = ((now - last) / 1e9f).coerceAtMost(0.05f)
+                last = now
+                val units = speed.floatValue * seconds
+                if (units != 0f) scroll?.invoke(units)
             }
         }
-        pace = next
+    }
+    fun stopWheel() {
+        wheel?.cancel()
+        wheel = null
+        speed.floatValue = 0f
+        scrolling = false
     }
 
-    val at = carried ?: placed()
+    val at = carried ?: placed(area)
     Surface(
         shape = CircleShape,
         color = if (carried != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
@@ -155,76 +184,86 @@ private fun BoxWithConstraintsScope.DesktopButton(
         modifier = Modifier
             .offset { IntOffset(at.x.roundToInt(), at.y.roundToInt()) }
             .size(BUTTON)
+            .systemGestureExclusion()
             .testTag("desktop-$name")
             .semantics {
                 contentDescription = label
                 role = Role.Button
                 onClick { click(); true }
             }
-            .pointerInput(portrait, width, height) {
+            .pointerInput(portrait) {
                 awaitEachGesture {
-                    val down = awaitFirstDown()
-                    down.consume()
-                    var lastY = down.position.y
-                    val start = withTimeoutOrNull(MOVE_HOLD_MS) {
-                        var seen: Start? = null
-                        while (seen == null) {
-                            val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id }
-                            seen = when {
-                                change == null -> Start.NONE
-                                !change.pressed ->
-                                    if (change.uptimeMillis - down.uptimeMillis < viewConfiguration.longPressTimeoutMillis) Start.TAP else Start.NONE
-                                abs(change.position.y - down.position.y) > viewConfiguration.touchSlop ||
-                                    abs(change.position.x - down.position.x) > viewConfiguration.touchSlop -> Start.SLIDE
-                                else -> null
-                            }
-                            change?.let { lastY = it.position.y; it.consume() }
-                        }
-                        seen
-                    }
-                    fun steer(y: Float) {
-                        if (scroll == null) return
-                        val next = scrollPace(y - down.position.y, size, viewConfiguration.touchSlop)
-                        if (next != 0 && abs(next) != abs(pace)) onBuzz(8)
-                        turn(next)
-                    }
-                    when (start) {
-                        Start.TAP -> click()
-                        Start.SLIDE -> {
-                            steer(lastY)
-                            while (true) {
+                    try {
+                        val down = awaitFirstDown()
+                        down.consume()
+                        var lastY = down.position.y
+                        val start = withTimeoutOrNull(MOVE_HOLD_MS) {
+                            var seen: Start? = null
+                            while (seen == null) {
                                 val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id }
-                                if (change == null || !change.pressed) break
-                                change.consume()
-                                steer(change.position.y)
+                                seen = when {
+                                    change == null -> Start.NONE
+                                    !change.pressed ->
+                                        if (change.uptimeMillis - down.uptimeMillis < viewConfiguration.longPressTimeoutMillis) Start.TAP else Start.NONE
+                                    abs(change.position.y - down.position.y) > viewConfiguration.touchSlop ||
+                                        abs(change.position.x - down.position.x) > viewConfiguration.touchSlop -> Start.SLIDE
+                                    else -> null
+                                }
+                                change?.let { lastY = it.position.y; it.consume() }
                             }
+                            seen
                         }
-                        Start.NONE -> {}
-                        null -> {
-                            // Held still: carried until dropped.
-                            onBuzz(30)
-                            var spot = placed()
-                            carried = spot
-                            while (true) {
-                                val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id }
-                                if (change == null || !change.pressed) break
-                                spot = Offset(
-                                    (spot.x + change.positionChange().x).coerceIn(0f, width - size),
-                                    (spot.y + change.positionChange().y).coerceIn(0f, height - size),
-                                )
+                        var tier = 0
+                        fun steer(y: Float) {
+                            val dy = y - down.position.y
+                            val next = scrollTier(dy, area.size)
+                            if (next != tier && next > 0) onBuzz(8)
+                            tier = next
+                            speed.floatValue = scrollSpeed(dy, area.size, viewConfiguration.touchSlop)
+                        }
+                        when (start) {
+                            Start.TAP -> click()
+                            Start.SLIDE -> if (scroll != null) {
+                                steer(lastY)
+                                startWheel()
+                                while (true) {
+                                    val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id }
+                                    if (change == null || !change.pressed) break
+                                    change.consume()
+                                    steer(change.position.y)
+                                }
+                            }
+                            Start.NONE -> {}
+                            null -> {
+                                // Held still: carried until dropped.
+                                onBuzz(30)
+                                var spot = placed(area)
                                 carried = spot
-                                change.consume()
+                                while (true) {
+                                    val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id }
+                                    if (change == null || !change.pressed) break
+                                    val a = area
+                                    spot = Offset(
+                                        (spot.x + change.positionChange().x).coerceIn(0f, a.width - a.size),
+                                        (spot.y + change.positionChange().y).coerceIn(0f, a.height - a.size),
+                                    )
+                                    carried = spot
+                                    change.consume()
+                                }
+                                val a = area
+                                right = spot.x + a.size / 2 > a.width / 2
+                                middle = (spot.y + a.size / 2) / a.height
+                                SessionPrefs.setDesktopButton(context, name, a.portrait, right, middle)
                             }
-                            right = spot.x + size / 2 > width / 2
-                            middle = (spot.y + size / 2) / height
-                            carried = null
-                            SessionPrefs.setDesktopButton(context, name, portrait, right, middle)
                         }
+                    } finally {
+                        // A gesture cut short (the window resized, the touch cancelled) stops too.
+                        stopWheel()
+                        carried = null
                     }
-                    turn(0)
                 }
             },
     ) {
-        Icon(if (pace != 0) Icons.Outlined.SwapVert else icon, contentDescription = null, modifier = Modifier.padding(10.dp))
+        Icon(if (scrolling) Icons.Outlined.SwapVert else icon, contentDescription = null, modifier = Modifier.padding(10.dp))
     }
 }

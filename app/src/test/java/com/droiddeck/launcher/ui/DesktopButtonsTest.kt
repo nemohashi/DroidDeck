@@ -21,6 +21,7 @@ class DesktopButtonsTest {
     @get:Rule val compose = createRobolectricComposeRule()
     private val context: Context get() = RuntimeEnvironment.getApplication()
     private val calls = mutableListOf<String>()
+    private var scrolled = 0f
 
     @Before fun setUp() {
         context.getSharedPreferences("session", Context.MODE_PRIVATE).edit().clear().commit()
@@ -28,18 +29,21 @@ class DesktopButtonsTest {
             DesktopButtons(
                 onKeyboard = { calls += "keyboard" },
                 onSend = { calls += "send" },
-                onScroll = { calls += "scroll $it" },
+                onScroll = { scrolled += it },
                 onBuzz = {},
             )
         }
     }
 
-    @Test fun paceGrowsWithEachButtonHeightOfTheSlide() {
-        assertEquals(0, scrollPace(5f, 100f, 10f))
-        assertEquals(1, scrollPace(60f, 100f, 10f))
-        assertEquals(2, scrollPace(200f, 100f, 10f))
-        assertEquals(3, scrollPace(400f, 100f, 10f))
-        assertEquals(-2, scrollPace(-200f, 100f, 10f))
+    @Test fun speedRisesSmoothlyThroughSlowNormalAndFast() {
+        assertEquals(0f, scrollSpeed(5f, 100f, 10f), 0f)
+        assertEquals(30f, scrollSpeed(100f, 100f, 10f), 0.01f)
+        assertEquals(65f, scrollSpeed(150f, 100f, 10f), 0.01f)
+        assertEquals(-100f, scrollSpeed(-200f, 100f, 10f), 0.01f)
+        assertEquals(250f, scrollSpeed(300f, 100f, 10f), 0.01f)
+        assertEquals(250f, scrollSpeed(900f, 100f, 10f), 0.01f)
+        assertTrue(scrollSpeed(20f, 100f, 10f) in 5f..15f)
+        assertEquals(listOf(0, 1, 2, 3, 3), listOf(50f, 120f, 250f, 300f, 700f).map { scrollTier(it, 100f) })
     }
 
     @Test fun aTapIsTheButtonsAction() {
@@ -55,11 +59,12 @@ class DesktopButtonsTest {
         compose.mainClock.advanceTimeBy(50)
         compose.onNodeWithTag("desktop-keyboard").performTouchInput { moveBy(Offset(0f, height * 2f)) }
         compose.mainClock.advanceTimeBy(1000)
-        val scrolled = calls.count { it == "scroll 1" }
-        assertTrue("normal pace, about ten a second: $calls", scrolled in 6..14)
+        // Two button heights: the normal pace, ten notches (100 units) a second, a frame at a time.
+        val second = scrolled
+        assertTrue("about 100 units in a second: $second", second in 70f..130f)
         compose.onNodeWithTag("desktop-keyboard").performTouchInput { up() }
         compose.mainClock.advanceTimeBy(1000)
-        assertEquals(scrolled, calls.count { it == "scroll 1" })
+        assertEquals(second, scrolled, 0.01f)
         assertTrue(calls.none { it == "keyboard" })
     }
 

@@ -42,7 +42,8 @@ class SecondScreenPresentation(
     display: Display,
     private val sendPointer: (x: Float, y: Float, width: Float, height: Float) -> Unit,
     private val sendButton: (button: Int, pressed: Boolean) -> Unit,
-    private val sendWheel: (steps: Int) -> Unit,
+    /** Scrolls in scroll axis units: a wheel notch is 10, negative = up. */
+    private val sendScroll: (units: Float) -> Unit,
     private val onSteamMenu: () -> Unit,
     private val onQam: () -> Unit,
     private val onClose: () -> Unit,
@@ -314,7 +315,8 @@ class SecondScreenPresentation(
                     sendButton(button, pressed)
                 }
 
-                override fun onWheel(steps: Int) = sendWheel(steps)
+                override fun onWheel(steps: Int) = sendScroll(steps * 10f)
+                override fun onScroll(units: Float) = sendScroll(units)
                 override fun onLongPress() { performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS) }
             })
 
