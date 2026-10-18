@@ -37,15 +37,17 @@ class DesktopButtonsTest {
         }
     }
 
-    @Test fun speedRisesSmoothlyThroughSlowNormalAndFast() {
+    @Test fun speedRisesSmoothlyThroughSlowNormalFastAndRunning() {
         assertEquals(0f, scrollSpeed(5f, 100f, 10f), 0f)
         assertEquals(30f, scrollSpeed(100f, 100f, 10f), 0.01f)
         assertEquals(65f, scrollSpeed(150f, 100f, 10f), 0.01f)
         assertEquals(-100f, scrollSpeed(-200f, 100f, 10f), 0.01f)
         assertEquals(250f, scrollSpeed(300f, 100f, 10f), 0.01f)
-        assertEquals(250f, scrollSpeed(900f, 100f, 10f), 0.01f)
+        assertEquals(525f, scrollSpeed(350f, 100f, 10f), 0.01f)
+        assertEquals(800f, scrollSpeed(400f, 100f, 10f), 0.01f)
+        assertEquals(800f, scrollSpeed(900f, 100f, 10f), 0.01f)
         assertTrue(scrollSpeed(20f, 100f, 10f) in 5f..15f)
-        assertEquals(listOf(0, 1, 2, 3, 3), listOf(50f, 120f, 250f, 300f, 700f).map { scrollTier(it, 100f) })
+        assertEquals(listOf(0, 1, 2, 3, 4, 4), listOf(50f, 120f, 250f, 300f, 400f, 700f).map { scrollTier(it, 100f) })
     }
 
     @Test fun aTapIsTheButtonsAction() {

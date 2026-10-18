@@ -63,7 +63,8 @@ import kotlin.math.sign
  *  - slide up or down ........ (the keyboard button) scrolls what is under the pointer, smoothly,
  *                              held like a joystick: the further from where the finger came down,
  *                              the faster - slow at about one button's height, normal at two, fast
- *                              at three, with a buzz at each - until it lifts
+ *                              at three, and at four fast enough to run to the end of a long page,
+ *                              with a buzz at each - until it lifts
  *  - hold still two seconds .. picks the button up: it goes where it is dropped, against the nearer
  *                              edge, remembered apart for portrait and landscape. Two seconds keeps
  *                              a slow start of a scroll from turning into a move.
@@ -89,13 +90,13 @@ internal fun DesktopButtons(
     }
 }
 
-/** Wheel notches a second at one, two and three button heights from where the finger came down. */
-private val SCROLL_NOTCHES = floatArrayOf(3f, 10f, 25f)
+/** Wheel notches a second at one, two, three and four button heights from where the finger came down. */
+private val SCROLL_NOTCHES = floatArrayOf(3f, 10f, 25f, 80f)
 
 /**
  * The joystick's speed in scroll axis units a second (a wheel notch is 10, down = positive) for a
  * finger [dy] pixels from where it came down: nothing inside the touch slop, then rising smoothly
- * from half a notch a second through [SCROLL_NOTCHES], and no faster past three button heights.
+ * from half a notch a second through [SCROLL_NOTCHES], and no faster past the last of them.
  */
 internal fun scrollSpeed(dy: Float, button: Float, slop: Float): Float {
     val distance = abs(dy)
@@ -112,7 +113,7 @@ internal fun scrollSpeed(dy: Float, button: Float, slop: Float): Float {
     return notches * 10f * dy.sign
 }
 
-/** Which button height [dy] has reached, 0 to 3: the joystick buzzes as it crosses each. */
+/** Which button height [dy] has reached, 0 to the number of paces: the joystick buzzes as it crosses each. */
 internal fun scrollTier(dy: Float, button: Float): Int = (abs(dy) / button).toInt().coerceAtMost(SCROLL_NOTCHES.size)
 
 private const val MOVE_HOLD_MS = 2000L
