@@ -26,39 +26,37 @@ class TouchpadGesturesTest {
         })
         pad.bounds = android.graphics.RectF(0f, 0f, 2000f, 2000f)
         pad.place(1000f, 1000f)
-        pad.edgePx = 150f
+        pad.restPx = 150f
     }
 
-    @Test fun aThumbInTheEdgeStripTurnsTheOtherFingersDragIntoScrolling() {
+    @Test fun withAThumbRestingInTheStripTheOtherFingerMovesThePointerFromWhereItWas() {
         touch(MotionEvent.ACTION_DOWN, 0, 40f to 900f)
         touch(MotionEvent.ACTION_POINTER_DOWN, 1, 40f to 900f, 1200f to 600f)
-        touch(MotionEvent.ACTION_MOVE, 0, 41f to 902f, 1200f to 700f)
-        touch(MotionEvent.ACTION_MOVE, 0, 41f to 902f, 1200f to 520f)
-        touch(MotionEvent.ACTION_POINTER_UP, 1, 41f to 902f, 1200f to 520f)
+        touch(MotionEvent.ACTION_MOVE, 0, 41f to 902f, 1200f to 640f)
+        touch(MotionEvent.ACTION_POINTER_UP, 1, 41f to 902f, 1200f to 640f)
         touch(MotionEvent.ACTION_UP, 0, 41f to 902f)
-        // 36 px of finger is a wheel notch, 10 units: down 100 px is -28, up 180 px is +50.
-        assertEquals(listOf("move 1200,600", "scroll -28", "scroll 50"), calls)
+        // Relative, from (1000, 1000): no jump to the finger at (1200, 600), no button, no scroll.
+        val move = calls.single()
+        assertTrue(move, move.startsWith("move 1000,") && move.substringAfter(",").toInt() > 1000)
     }
 
-    @Test fun theScrollingFingerMayTouchAgainWhileTheThumbRests() {
+    @Test fun withAThumbRestingInTheStripTheOtherFingersTapIsAClick() {
         touch(MotionEvent.ACTION_DOWN, 0, 40f to 900f)
+        time += 400
         touch(MotionEvent.ACTION_POINTER_DOWN, 1, 40f to 900f, 1200f to 600f)
         touch(MotionEvent.ACTION_POINTER_UP, 1, 40f to 900f, 1200f to 600f)
-        touch(MotionEvent.ACTION_POINTER_DOWN, 1, 40f to 900f, 800f to 300f)
-        touch(MotionEvent.ACTION_MOVE, 0, 40f to 900f, 800f to 340f)
-        touch(MotionEvent.ACTION_POINTER_UP, 1, 40f to 900f, 800f to 340f)
+        time += 400
         touch(MotionEvent.ACTION_UP, 0, 40f to 900f)
-        assertEquals(listOf("move 1200,600", "move 800,300", "scroll -11"), calls)
+        assertEquals(listOf("button ${PointerGestures.BTN_LEFT} true", "button ${PointerGestures.BTN_LEFT} false"), calls)
     }
 
-    @Test fun outsideTheStripAHeldFingerStillDragsWithTheLeftButton() {
-        touch(MotionEvent.ACTION_DOWN, 0, 600f to 900f)
-        touch(MotionEvent.ACTION_POINTER_DOWN, 1, 600f to 900f, 1200f to 600f)
-        touch(MotionEvent.ACTION_MOVE, 0, 600f to 900f, 1200f to 700f)
-        touch(MotionEvent.ACTION_POINTER_UP, 1, 600f to 900f, 1200f to 700f)
-        touch(MotionEvent.ACTION_UP, 0, 600f to 900f)
-        assertEquals("button ${PointerGestures.BTN_LEFT} true", calls.first())
-        assertTrue(calls.none { it.startsWith("scroll") })
+    @Test fun twoFingersBesideARestingThumbStillScroll() {
+        touch(MotionEvent.ACTION_DOWN, 0, 40f to 900f)
+        touch(MotionEvent.ACTION_POINTER_DOWN, 1, 40f to 900f, 600f to 900f)
+        touch(MotionEvent.ACTION_POINTER_DOWN, 2, 40f to 900f, 600f to 900f, 800f to 900f)
+        touch(MotionEvent.ACTION_MOVE, 0, 40f to 900f, 600f to 930f, 800f to 930f)
+        touch(MotionEvent.ACTION_MOVE, 0, 40f to 900f, 600f to 966f, 800f to 966f)
+        assertEquals(listOf("scroll -10"), calls)
     }
 
     @Test fun twoFingersScrollSmoothlyOncePastTheSlop() {
@@ -72,6 +70,16 @@ class TouchpadGesturesTest {
         assertEquals(listOf("scroll -10"), calls)
     }
 
+    @Test fun outsideTheStripAHeldFingerStillDragsWithTheLeftButton() {
+        touch(MotionEvent.ACTION_DOWN, 0, 600f to 900f)
+        touch(MotionEvent.ACTION_POINTER_DOWN, 1, 600f to 900f, 1200f to 600f)
+        touch(MotionEvent.ACTION_MOVE, 0, 600f to 900f, 1200f to 700f)
+        touch(MotionEvent.ACTION_POINTER_UP, 1, 600f to 900f, 1200f to 700f)
+        touch(MotionEvent.ACTION_UP, 0, 600f to 900f)
+        assertEquals("button ${PointerGestures.BTN_LEFT} true", calls.first())
+        assertTrue(calls.none { it.startsWith("scroll") })
+    }
+
     @Test fun aTapInTheStripIsStillAClick() {
         touch(MotionEvent.ACTION_DOWN, 0, 40f to 900f)
         touch(MotionEvent.ACTION_UP, 0, 40f to 900f)
@@ -83,8 +91,9 @@ class TouchpadGesturesTest {
         touch(MotionEvent.ACTION_MOVE, 0, 50f to 900f)
         assertTrue(calls.isEmpty())
         touch(MotionEvent.ACTION_MOVE, 0, 90f to 900f)
-        touch(MotionEvent.ACTION_UP, 0, 90f to 900f)
-        assertTrue(calls.single().startsWith("move "))
+        touch(MotionEvent.ACTION_MOVE, 0, 130f to 900f)
+        touch(MotionEvent.ACTION_UP, 0, 130f to 900f)
+        assertTrue(calls.isNotEmpty() && calls.all { it.startsWith("move ") })
     }
 
     /** One event; [index] is the action index, the pairs every finger's x to y, ids 0, 1, … */

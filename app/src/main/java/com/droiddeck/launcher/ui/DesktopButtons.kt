@@ -2,6 +2,7 @@ package com.droiddeck.launcher.ui
 
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxWithConstraintsScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,6 +27,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -113,12 +115,16 @@ internal fun scrollTier(dy: Float, button: Float): Int = (abs(dy) / button).toIn
 
 private const val MOVE_HOLD_MS = 2000L
 private val BUTTON = 44.dp
-private val EDGE_MARGIN = 10.dp
+/** What a thumb has to hit: wider than the button drawn, since a touch that misses it lands on the
+ *  touchpad under it. The button is drawn [EDGE_GAP] from the screen's edge. */
+private val TOUCH = 64.dp
+private val EDGE_GAP = 10.dp
 
 private enum class Start { TAP, SLIDE, NONE }
 
-/** Where the buttons may go: the screen they sit on, and their own size and margin, in pixels. */
-private data class Area(val width: Float, val height: Float, val size: Float, val margin: Float, val portrait: Boolean)
+/** Where the buttons may go: the screen they sit on, the touch area's size and its margin from the
+ *  edge, and the drawn button's size, in pixels. */
+private data class Area(val width: Float, val height: Float, val size: Float, val margin: Float, val button: Float, val portrait: Boolean)
 
 /** One button; [fromMiddle] places it until it is moved, its middle that far below the screen's. */
 @Composable
@@ -135,8 +141,8 @@ private fun BoxWithConstraintsScope.DesktopButton(
     val density = LocalDensity.current
     val portrait = maxHeight > maxWidth
     val height = constraints.maxHeight.toFloat()
-    val area by rememberUpdatedState(Area(constraints.maxWidth.toFloat(), height,
-        with(density) { BUTTON.toPx() }, with(density) { EDGE_MARGIN.toPx() }, portrait))
+    val area by rememberUpdatedState(Area(constraints.maxWidth.toFloat(), height, with(density) { TOUCH.toPx() },
+        with(density) { (EDGE_GAP - (TOUCH - BUTTON) / 2).coerceAtLeast(0.dp).toPx() }, with(density) { BUTTON.toPx() }, portrait))
     val saved = remember(portrait) { SessionPrefs.desktopButton(context, name, portrait) }
     var right by remember(portrait) { mutableStateOf(saved?.first ?: true) }
     var middle by remember(portrait) { mutableStateOf(saved?.second ?: ((height / 2 + with(density) { fromMiddle.toPx() }) / height)) }
@@ -177,13 +183,10 @@ private fun BoxWithConstraintsScope.DesktopButton(
     }
 
     val at = carried ?: placed(area)
-    Surface(
-        shape = CircleShape,
-        color = if (carried != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-        contentColor = if (carried != null) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+    Box(
         modifier = Modifier
             .offset { IntOffset(at.x.roundToInt(), at.y.roundToInt()) }
-            .size(BUTTON)
+            .size(TOUCH)
             .systemGestureExclusion()
             .testTag("desktop-$name")
             .semantics {
@@ -216,10 +219,10 @@ private fun BoxWithConstraintsScope.DesktopButton(
                         var tier = 0
                         fun steer(y: Float) {
                             val dy = y - down.position.y
-                            val next = scrollTier(dy, area.size)
+                            val next = scrollTier(dy, area.button)
                             if (next != tier && next > 0) onBuzz(8)
                             tier = next
-                            speed.floatValue = scrollSpeed(dy, area.size, viewConfiguration.touchSlop)
+                            speed.floatValue = scrollSpeed(dy, area.button, viewConfiguration.touchSlop)
                         }
                         when (start) {
                             Start.TAP -> click()
@@ -264,6 +267,13 @@ private fun BoxWithConstraintsScope.DesktopButton(
                 }
             },
     ) {
-        Icon(if (scrolling) Icons.Outlined.SwapVert else icon, contentDescription = null, modifier = Modifier.padding(10.dp))
+        Surface(
+            shape = CircleShape,
+            color = if (carried != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+            contentColor = if (carried != null) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.align(Alignment.Center).size(BUTTON),
+        ) {
+            Icon(if (scrolling) Icons.Outlined.SwapVert else icon, contentDescription = null, modifier = Modifier.padding(10.dp))
+        }
     }
 }
