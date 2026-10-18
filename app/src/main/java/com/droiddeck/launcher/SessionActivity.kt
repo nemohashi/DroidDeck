@@ -695,7 +695,20 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                     onClose = { pcKeyboardOpen = false },
                 )
                 if (SessionState.mode == SessionService.MODE_DESKTOP && !drawerOpen && !pcKeyboardOpen && !loading.visible)
-                    com.droiddeck.launcher.ui.KeyboardFab { keyboard?.toggle() }
+                    com.droiddeck.launcher.ui.DesktopButtons(
+                        onKeyboard = { keyboard?.toggle() },
+                        onSend = {
+                            if (CompositorHost.isStarted) {
+                                sendGuestKey(29, true); sendGuestKey(28, true) // KEY_LEFTCTRL, KEY_ENTER
+                                sendGuestKey(28, false); sendGuestKey(29, false)
+                            }
+                        },
+                        onScroll = { steps -> if (CompositorHost.isStarted) WaylandCompositor.nativeSendSceneInput(4, steps, 0) },
+                        onBuzz = { ms ->
+                            @Suppress("DEPRECATION")
+                            (getSystemService(VIBRATOR_SERVICE) as? android.os.Vibrator)?.vibrate(ms)
+                        },
+                    )
                 SessionDrawer(drawerOpen, drawerPage, drawerControllerActive, onPageChange = { drawerPage = it }, a = DrawerActions(
                     steam = SessionState.mode == SessionService.MODE_STEAM,
                     title = if (SessionState.mode == SessionService.MODE_RUN)

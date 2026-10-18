@@ -81,6 +81,21 @@ object SessionPrefs {
         prefs(context).edit().putInt("orientation", orientation).apply()
     }
 
+    /** Where a desktop session button ([name]) was dropped: on the right edge or the left, and its
+     *  middle as a share of the screen's height. Kept apart for portrait and landscape; null = never moved. */
+    fun desktopButton(context: Context, name: String, portrait: Boolean): Pair<Boolean, Float>? {
+        val value = prefs(context).getString(desktopButtonKey(name, portrait), null) ?: return null
+        val y = value.drop(2).toFloatOrNull() ?: return null
+        return (value.first() == 'R') to y
+    }
+
+    fun setDesktopButton(context: Context, name: String, portrait: Boolean, right: Boolean, middle: Float) {
+        prefs(context).edit().putString(desktopButtonKey(name, portrait), (if (right) "R:" else "L:") + middle).apply()
+    }
+
+    private fun desktopButtonKey(name: String, portrait: Boolean) =
+        "desktopButton.$name." + if (portrait) "portrait" else "landscape"
+
     fun launcherFullscreen(context: Context): Boolean = prefs(context).getBoolean("launcherFullscreen", true)
 
     fun setLauncherFullscreen(context: Context, on: Boolean) {
