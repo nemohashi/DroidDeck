@@ -148,6 +148,8 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     private lateinit var sessionRoot: FrameLayout
     private val guestKeysDown = mutableSetOf<Int>()
     private lateinit var surfaceView: SurfaceView
+    /** Takes the touches nothing above it does, for [onTouchEvent]; see where it is added. */
+    private lateinit var touchCatcher: View
     private lateinit var sessionOverlay: ComposeView
     private lateinit var loading: LoadingState
     private lateinit var hud: PerfHud
@@ -456,6 +458,19 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         surfaceView = SurfaceView(this)
         surfaceView.holder.addCallback(this)
         root.addView(surfaceView)
+        // Touches on the picture go to a view of their own rather than falling through to
+        // Activity.onTouchEvent: Android hands a later finger to a view only when the first one went
+        // to a view, so with a thumb resting on the picture, the other hand's touch on a desktop
+        // button went to the touchpad instead and moved the pointer. Window coordinates, as before.
+        touchCatcher = View(this).apply {
+            setOnTouchListener { v, event ->
+                val at = IntArray(2).also { v.getLocationInWindow(it) }
+                event.offsetLocation(at[0].toFloat(), at[1].toFloat())
+                onTouchEvent(event)
+                true
+            }
+        }
+        root.addView(touchCatcher)
         root.addOnLayoutChangeListener { _, l, t, r, b, ol, ot, or, ob ->
             if (r - l != or - ol || b - t != ob - ot) uiHandler.post { applyUnfoldedControls() }
         }
@@ -2103,6 +2118,8 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         val rect = drawnRect() ?: return
         val cx = x.coerceIn(rect.left, rect.right)
         val cy = y.coerceIn(rect.top, rect.bottom)
+        // The mouse moves it too: the touchpad goes on from where the pointer is, not where it left it.
+        if (::touchpad.isInitialized) touchpad.place(cx, cy)
         WaylandCompositor.nativeSendPointer(1, InputSpace.x(cx, surfaceView.width), InputSpace.y(cy, surfaceView.height))
         showCursor(cx, cy)
     }
@@ -2273,7 +2290,8 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         if (panel == null) {
             panel = com.droiddeck.launcher.ui.DeckControlsPanel(this, onClose = { chooseUnfoldedControls(false) },
                 onSteamMenu = ::tapSteamButton, onQam = ::tapQam, pad = padBridge)
-            sessionRoot.addView(panel, sessionRoot.indexOfChild(surfaceView) + 1)
+            // Just above the surface and its touches: the on-screen pad, keyboard and drawer still draw over it.
+            sessionRoot.addView(panel, sessionRoot.indexOfChild(touchCatcher) + 1)
             unfoldedPanel = panel
             updateOnScreenControls()
         }
