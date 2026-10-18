@@ -700,6 +700,7 @@
     <string name="setup_orientation_landscape">Landscape</string>
     <string name="setup_orientation_reverse">Reverse landscape</string>
     <string name="setup_orientation_unfolded_any">Automatic, portrait too when unfolded</string>
+    <string name="desktop_send">Send (Ctrl+Enter)</string>
     <string name="setup_fullscreen">Fullscreen</string>
     <string name="setup_fullscreen_on">Hides the Android status and navigation bars</string>
     <string name="setup_fullscreen_off">Shows the Android status and navigation bars</string>

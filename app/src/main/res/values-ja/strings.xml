@@ -636,6 +636,7 @@
     <string name="setup_orientation_landscape">横向き</string>
     <string name="setup_orientation_reverse">横向き（逆）</string>
     <string name="setup_orientation_unfolded_any">自動（開いたときは縦向きも）</string>
+    <string name="desktop_send">送信（Ctrl+Enter）</string>
     <string name="setup_fullscreen">全画面</string>
     <string name="setup_fullscreen_on">Androidのステータスバーとナビゲーションバーを非表示</string>
     <string name="setup_fullscreen_off">Androidのステータスバーとナビゲーションバーを表示</string>
