@@ -3146,11 +3146,15 @@ static void deliver_key(const struct input_msg *m) {
     key_event((uint32_t)m->p1, m->p2);
 }
 
-/* Vertical wheel steps (negative = up) at the current pointer position. */
-static void scroll_event(int steps) {
+/* Vertical scrolling at the current pointer position, [value] axis units (a wheel notch is 10,
+ * negative = up). [steps] is the same in whole wheel notches, for the discrete events, or 0 for a
+ * smooth scroll - touch scrolling, a frame at a time - which sends the axis value alone, as a
+ * touchpad does. The desktop's KWin passes the axis value on as it is, so small ones scroll the
+ * programs under it smoothly instead of a notch at a time. */
+static void scroll_axis(double value, int steps) {
     struct surface *target = g_active_constraint ? g_active_constraint->surface
                            : g_desktop ? g_desktop : (g_grab ? g_grab : toplevel_at(g_ptr_x, g_ptr_y));
-    if (!target || !steps) return;
+    if (!target || value == 0) return;
     struct wl_client *client = wl_resource_get_client(target->resource);
     struct seat_pointer *sp;
     if (!pointer_for(client)) return;
@@ -3160,16 +3164,19 @@ static void scroll_event(int steps) {
     pointer_focus(target->resource, wl_fixed_from_double(g_ptr_x - tx), wl_fixed_from_double(g_ptr_y - ty));
     for_each_pointer_of(client, sp) {
         /* From version 8 the discrete event is replaced by value120 and must not be sent. */
-        if (wl_resource_get_version(sp->ptr) >= WL_POINTER_AXIS_VALUE120_SINCE_VERSION)
+        if (steps && wl_resource_get_version(sp->ptr) >= WL_POINTER_AXIS_VALUE120_SINCE_VERSION)
             wl_pointer_send_axis_value120(sp->ptr, WL_POINTER_AXIS_VERTICAL_SCROLL, steps * 120);
-        else if (wl_resource_get_version(sp->ptr) >= WL_POINTER_AXIS_DISCRETE_SINCE_VERSION)
+        else if (steps && wl_resource_get_version(sp->ptr) >= WL_POINTER_AXIS_DISCRETE_SINCE_VERSION)
             wl_pointer_send_axis_discrete(sp->ptr, WL_POINTER_AXIS_VERTICAL_SCROLL, steps);
-        wl_pointer_send_axis(sp->ptr, t, WL_POINTER_AXIS_VERTICAL_SCROLL, wl_fixed_from_int(steps * 10));
+        wl_pointer_send_axis(sp->ptr, t, WL_POINTER_AXIS_VERTICAL_SCROLL, wl_fixed_from_double(value));
         if (wl_resource_get_version(sp->ptr) >= WL_POINTER_FRAME_SINCE_VERSION)
             wl_pointer_send_frame(sp->ptr);
     }
     wl_display_flush_clients(g_display);
 }
+
+/* Vertical wheel steps (negative = up) at the current pointer position. */
+static void scroll_event(int steps) { scroll_axis(steps * 10.0, steps); }
 
 /* Folds a key into the modifier state; returns whether the state changed. */
 static int update_modifiers(uint32_t evdev, int pressed) {
@@ -3258,6 +3265,7 @@ static int on_input_readable(int fd, uint32_t mask, void *data) {
         case 6: pointer_delta(m.p1 / 256.0, m.p2 / 256.0); break; /* relative motion, 1/256 px */
         case 7: deliver_touch(&m); break;
         case 8: output_resized(); break;
+        case 9: scroll_axis(m.p1 / 256.0, 0); break;             /* smooth scroll, 1/256 axis unit */
         default: deliver_pointer(&m); break;
         }
     }

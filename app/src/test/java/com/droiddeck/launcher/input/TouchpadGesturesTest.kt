@@ -21,6 +21,7 @@ class TouchpadGesturesTest {
             override fun onMove(x: Float, y: Float) { calls += "move ${x.toInt()},${y.toInt()}" }
             override fun onButton(button: Int, pressed: Boolean, x: Float, y: Float) { calls += "button $button $pressed" }
             override fun onWheel(steps: Int) { calls += "wheel $steps" }
+            override fun onScroll(units: Float) { calls += "scroll ${Math.round(units)}" }
             override fun onLongPress() { calls += "long" }
         })
         pad.bounds = android.graphics.RectF(0f, 0f, 2000f, 2000f)
@@ -35,7 +36,8 @@ class TouchpadGesturesTest {
         touch(MotionEvent.ACTION_MOVE, 0, 41f to 902f, 1200f to 520f)
         touch(MotionEvent.ACTION_POINTER_UP, 1, 41f to 902f, 1200f to 520f)
         touch(MotionEvent.ACTION_UP, 0, 41f to 902f)
-        assertEquals(listOf("move 1200,600", "wheel -2", "wheel 4"), calls)
+        // 36 px of finger is a wheel notch, 10 units: down 100 px is -28, up 180 px is +50.
+        assertEquals(listOf("move 1200,600", "scroll -28", "scroll 50"), calls)
     }
 
     @Test fun theScrollingFingerMayTouchAgainWhileTheThumbRests() {
@@ -46,7 +48,7 @@ class TouchpadGesturesTest {
         touch(MotionEvent.ACTION_MOVE, 0, 40f to 900f, 800f to 340f)
         touch(MotionEvent.ACTION_POINTER_UP, 1, 40f to 900f, 800f to 340f)
         touch(MotionEvent.ACTION_UP, 0, 40f to 900f)
-        assertEquals(listOf("move 1200,600", "move 800,300", "wheel -1"), calls)
+        assertEquals(listOf("move 1200,600", "move 800,300", "scroll -11"), calls)
     }
 
     @Test fun outsideTheStripAHeldFingerStillDragsWithTheLeftButton() {
@@ -56,7 +58,18 @@ class TouchpadGesturesTest {
         touch(MotionEvent.ACTION_POINTER_UP, 1, 600f to 900f, 1200f to 700f)
         touch(MotionEvent.ACTION_UP, 0, 600f to 900f)
         assertEquals("button ${PointerGestures.BTN_LEFT} true", calls.first())
-        assertTrue(calls.none { it.startsWith("wheel") })
+        assertTrue(calls.none { it.startsWith("scroll") })
+    }
+
+    @Test fun twoFingersScrollSmoothlyOncePastTheSlop() {
+        touch(MotionEvent.ACTION_DOWN, 0, 600f to 900f)
+        touch(MotionEvent.ACTION_POINTER_DOWN, 1, 600f to 900f, 800f to 900f)
+        touch(MotionEvent.ACTION_MOVE, 0, 600f to 905f, 800f to 905f)
+        touch(MotionEvent.ACTION_MOVE, 0, 600f to 930f, 800f to 930f)
+        touch(MotionEvent.ACTION_MOVE, 0, 600f to 966f, 800f to 966f)
+        touch(MotionEvent.ACTION_POINTER_UP, 1, 600f to 966f, 800f to 966f)
+        touch(MotionEvent.ACTION_UP, 0, 600f to 966f)
+        assertEquals(listOf("scroll -10"), calls)
     }
 
     @Test fun aTapInTheStripIsStillAClick() {

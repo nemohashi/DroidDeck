@@ -464,8 +464,15 @@ public final class WaylandCompositor {
 
     /** Inject the app's X-server input in scene (virtual desktop) pixels. type 2 = move to a,b;
      *  3 = evdev button a (BTN_LEFT=0x110…) pressed (b=1) or released (b=0); 4 = a wheel steps,
-     *  negative = up. */
+     *  negative = up; 9 = a smooth scroll of a/256 axis units (see {@link #sendScroll}). */
     public static native void nativeSendSceneInput(int type, int a, int b);
+
+    /** A smooth vertical scroll at the pointer, in axis units: a wheel notch is 10, negative = up.
+     *  Sent a little at a time (a frame's worth of a touch scroll), the programs scroll smoothly. */
+    public static void sendScroll(float units) {
+        int v = Math.round(units * 256f);
+        if (v != 0) nativeSendSceneInput(9, v, 0);
+    }
 
     // ── Frame generation (waylandcomp/src/framegen_bridge.c) ─────────────────────────────────
     // LSFG Native and Win-FG Native run inside the compositor's Turnip device, the same engines

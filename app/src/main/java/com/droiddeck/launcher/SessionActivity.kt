@@ -580,7 +580,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                                 sendGuestKey(28, false); sendGuestKey(29, false)
                             }
                         },
-                        onScroll = { steps -> if (CompositorHost.isStarted) WaylandCompositor.nativeSendSceneInput(4, steps, 0) },
+                        onScroll = { units -> if (CompositorHost.isStarted) WaylandCompositor.sendScroll(units) },
                         onBuzz = { ms ->
                             @Suppress("DEPRECATION")
                             (getSystemService(VIBRATOR_SERVICE) as? android.os.Vibrator)?.vibrate(ms)
@@ -1816,6 +1816,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
             WaylandCompositor.nativeSendSceneInput(3, button, if (pressed) 1 else 0)
         }
         override fun onWheel(steps: Int) { WaylandCompositor.nativeSendSceneInput(4, steps, 0) }
+        override fun onScroll(units: Float) = WaylandCompositor.sendScroll(units)
         override fun onLongPress() {
             @Suppress("DEPRECATION")
             (getSystemService(VIBRATOR_SERVICE) as? android.os.Vibrator)?.vibrate(15)
@@ -1942,7 +1943,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                 sendButton = { button, pressed ->
                     WaylandCompositor.nativeSendSceneInput(3, button, if (pressed) 1 else 0)
                 },
-                sendWheel = { steps -> WaylandCompositor.nativeSendSceneInput(4, steps, 0) },
+                sendScroll = { units -> WaylandCompositor.sendScroll(units) },
                 onSteamMenu = ::tapSteamButton,
                 onQam = ::tapQam,
                 onClose = { selectSecondScreenMode(SecondScreenMode.NONE) },

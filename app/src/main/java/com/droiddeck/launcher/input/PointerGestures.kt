@@ -28,6 +28,8 @@ class PointerGestures(
         /** [button] is an evdev code: BTN_LEFT, BTN_RIGHT. */
         fun onButton(button: Int, pressed: Boolean, x: Float, y: Float)
         fun onWheel(steps: Int)
+        /** A smooth scroll, a move's worth at a time, in scroll axis units: a wheel notch is 10, negative = up. */
+        fun onScroll(units: Float)
         fun onLongPress()
     }
 

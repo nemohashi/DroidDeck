@@ -152,12 +152,9 @@ class TouchpadGestures(
                 if (edgeScroll) {
                     val si = if (edgeRest && scrollerId != -1) event.findPointerIndex(scrollerId) else -1
                     if (si >= 0) {
-                        val steps = ((event.getY(si) - scrollerLastY) / SCROLL_STEP_PX).toInt()
-                        if (steps != 0) {
-                            // Finger down = content down, as the two-finger scroll.
-                            listener.onWheel(-steps)
-                            scrollerLastY += steps * SCROLL_STEP_PX
-                        }
+                        // Finger down = content down, as the two-finger scroll.
+                        listener.onScroll(-(event.getY(si) - scrollerLastY) * SCROLL_UNITS_PER_PX)
+                        scrollerLastY = event.getY(si)
                     }
                     return true
                 }
@@ -203,12 +200,13 @@ class TouchpadGestures(
                     return true
                 }
                 if (twoFingers && event.pointerCount >= 2) {
+                    // Smooth: each move scrolls by what the fingers moved, once they are past the slop.
                     val mid = (event.getY(0) + event.getY(1)) / 2f
-                    val dy = mid - scrollAnchorY
-                    val steps = (dy / SCROLL_STEP_PX).toInt()
-                    if (steps != 0) {
-                        listener.onWheel(-steps)
-                        scrollAnchorY += steps * SCROLL_STEP_PX
+                    if (scrolled) {
+                        listener.onScroll(-(mid - scrollAnchorY) * SCROLL_UNITS_PER_PX)
+                        scrollAnchorY = mid
+                    } else if (abs(mid - scrollAnchorY) > slopPx) {
+                        scrollAnchorY = mid
                         scrolled = true
                         secondWasTap = false
                     }
@@ -300,7 +298,8 @@ class TouchpadGestures(
         private const val HOLD_MS = 500L
         private const val TAP_MS = 300L
         private const val DOUBLE_TAP_MS = 300L
-        private const val SCROLL_STEP_PX = 36f
+        /** Scroll axis units per pixel the fingers move: a wheel notch (10) every 36 px. */
+        private const val SCROLL_UNITS_PER_PX = 10f / 36f
         /** How far a resting edge finger may drift, in touch slops, before it is a pointer drag. */
         private const val EDGE_REST_SLOP = 2f
     }
