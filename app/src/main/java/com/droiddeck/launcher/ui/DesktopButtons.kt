@@ -1,5 +1,6 @@
 package com.droiddeck.launcher.ui
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
@@ -30,6 +31,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
@@ -82,11 +84,14 @@ internal fun DesktopButtons(
     onHold: (Boolean) -> Unit,
     onBuzz: (ms: Long) -> Unit,
 ) {
+    // The button scrolling: the others step aside meanwhile, since a thumb sliding up or down may
+    // have to pass over one (Send, set just above the keyboard button) and would hold back.
+    var scrolling by remember { mutableStateOf<String?>(null) }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         DesktopButton("keyboard", Icons.Outlined.Keyboard, stringResource(R.string.pckb_android), 44.dp,
-            onKeyboard, onScroll, onHold, onBuzz)
+            onKeyboard, onScroll, onHold, onBuzz, scrolling, { scrolling = it })
         DesktopButton("send", Icons.AutoMirrored.Outlined.Send, stringResource(R.string.desktop_send), (-16).dp,
-            onSend, null, onHold, onBuzz)
+            onSend, null, onHold, onBuzz, scrolling, { scrolling = it })
     }
 }
 
@@ -140,9 +145,14 @@ private fun BoxWithConstraintsScope.DesktopButton(
     onScroll: ((Float) -> Unit)?,
     onHold: (Boolean) -> Unit,
     onBuzz: (Long) -> Unit,
+    scrollingButton: String?,
+    onScrolling: (String?) -> Unit,
 ) {
     val context = LocalContext.current
     val hold by rememberUpdatedState(onHold)
+    val aside = scrollingButton != null && scrollingButton != name
+    val stepAside by rememberUpdatedState(aside)
+    val shown by animateFloatAsState(if (aside) 0f else 1f, label = "desktop-button")
     val density = LocalDensity.current
     val portrait = maxHeight > maxWidth
     val height = constraints.maxHeight.toFloat()
@@ -196,6 +206,7 @@ private fun BoxWithConstraintsScope.DesktopButton(
         modifier = Modifier
             .offset { IntOffset(at.x.roundToInt(), at.y.roundToInt()) }
             .size(TOUCH)
+            .graphicsLayer { alpha = shown }
             .systemGestureExclusion()
             .testTag("desktop-$name")
             .semantics {
@@ -206,7 +217,10 @@ private fun BoxWithConstraintsScope.DesktopButton(
             .pointerInput(portrait) {
                 awaitEachGesture {
                     val down = awaitFirstDown()
+                    // Stepped aside for another button's scroll: a second finger here does nothing.
+                    if (stepAside) return@awaitEachGesture
                     hold(true)
+                    var slid = false
                     try {
                         down.consume()
                         var lastY = down.position.y
@@ -238,14 +252,19 @@ private fun BoxWithConstraintsScope.DesktopButton(
                         when (start) {
                             Start.TAP -> click()
                             Start.SLIDE -> if (scroll != null) {
+                                slid = true
+                                onScrolling(name)
                                 steer(lastY)
                                 startWheel()
+                                var farthest = abs(lastY - down.position.y)
                                 while (true) {
                                     val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id }
                                     if (change == null || !change.pressed) break
                                     change.consume()
                                     steer(change.position.y)
+                                    farthest = maxOf(farthest, abs(change.position.y - down.position.y))
                                 }
+                                android.util.Log.i("DesktopInput", "button $name: slid at most %.1f button heights".format(farthest / area.button))
                             }
                             Start.NONE -> {}
                             null -> {
@@ -274,6 +293,7 @@ private fun BoxWithConstraintsScope.DesktopButton(
                         // A gesture cut short (the window resized, the touch cancelled) stops too.
                         stopWheel()
                         carried = null
+                        if (slid) onScrolling(null)
                         hold(false)
                     }
                 }
