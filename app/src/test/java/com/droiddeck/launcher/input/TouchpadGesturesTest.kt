@@ -1,12 +1,15 @@
 package com.droiddeck.launcher.input
 
+import android.os.Looper
 import android.view.MotionEvent
+import java.time.Duration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -47,6 +50,7 @@ class TouchpadGesturesTest {
         touch(MotionEvent.ACTION_POINTER_UP, 1, 40f to 900f, 1200f to 600f)
         time += 400
         touch(MotionEvent.ACTION_UP, 0, 40f to 900f)
+        clickReleased()
         assertEquals(listOf("button ${PointerGestures.BTN_LEFT} true", "button ${PointerGestures.BTN_LEFT} false"), calls)
     }
 
@@ -83,6 +87,7 @@ class TouchpadGesturesTest {
     @Test fun aTapInTheStripIsStillAClick() {
         touch(MotionEvent.ACTION_DOWN, 0, 40f to 900f)
         touch(MotionEvent.ACTION_UP, 0, 40f to 900f)
+        clickReleased()
         assertEquals(listOf("button ${PointerGestures.BTN_LEFT} true", "button ${PointerGestures.BTN_LEFT} false"), calls)
     }
 
@@ -95,6 +100,9 @@ class TouchpadGesturesTest {
         touch(MotionEvent.ACTION_UP, 0, 130f to 900f)
         assertTrue(calls.isNotEmpty() && calls.all { it.startsWith("move ") })
     }
+
+    /** A tap's click is held a moment before it is released, so a game sees it. */
+    private fun clickReleased() = shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(100))
 
     /** One event; [index] is the action index, the pairs every finger's x to y, ids 0, 1, … */
     private fun touch(action: Int, index: Int, vararg fingers: Pair<Float, Float>) {

@@ -27,6 +27,7 @@ class TouchpadClickTest {
             events += "$name ${if (pressed) "down" else "up"}"
         }
         override fun onWheel(steps: Int) { events += "wheel $steps" }
+        override fun onScroll(units: Float) { events += "scroll" }
         override fun onLongPress() { events += "long press" }
     }
 
