@@ -14,8 +14,9 @@ CHROMIUM = ["scoped_dir3yu9Xt/SingletonSocket"]
 APPIMAGE = ["droiddeck-appimage.19PoOD"]
 BUS = ["dbus-1zWfOP1IaR="]
 KDE = ["plasma-csd-generator.BVWIWA/"]
-STALE = STEAM + CHROMIUM + APPIMAGE + BUS + KDE
-KEPT = ["droiddeck-mangohud.conf", ".X11-unix/", "steamworks", "steamABCDEF/inside", "notes.txt",
+X = [".X0-lock", ".X1-lock"]
+STALE = STEAM + CHROMIUM + APPIMAGE + BUS + KDE + X
+KEPT = ["droiddeck-mangohud.conf", ".X11-unix/", ".X11-unix/X0", "steamworks", "steamABCDEF/inside", "notes.txt",
         "mangohud.conf", ".wine-10480/", "dbus-1zWfOP1IaR.log", "dbus-notasocket",
         "plasma-csd-generator.CQGZSw/kept"]
 
@@ -57,7 +58,7 @@ class SessionTmpTest(unittest.TestCase):
         return os.path.lexists(self.tmp / name.rstrip("=").split("/")[0])
 
     def test_what_killed_sessions_left_goes_and_nothing_else(self):
-        self.assertEqual("== /tmp: cleared 8 entries earlier sessions left\n", self.sweep())
+        self.assertEqual("== /tmp: cleared 10 entries earlier sessions left\n", self.sweep())
         for name in STALE:
             self.assertFalse(self.exists(name), name)
         for name in KEPT:
@@ -84,7 +85,10 @@ class SessionTmpTest(unittest.TestCase):
         self.kept_while("55 dbus-daemon --config-file=/usr/local/share/droiddeck/system-bus.conf --nofork\n", [])
 
     def test_a_running_desktop_keeps_its_decorations(self):
-        self.kept_while("44 kwin_wayland --xwayland\n", KDE)
+        self.kept_while("44 kwin_wayland --xwayland\n", KDE + X)
+
+    def test_a_running_x_server_keeps_the_locks(self):
+        self.kept_while("33 /usr/bin/Xvnc :1 -geometry 2048x1470\n", X)
 
     def test_a_clean_tmp_says_nothing(self):
         self.sweep()
