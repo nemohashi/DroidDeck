@@ -325,7 +325,7 @@ class TouchpadGestures(
         private const val CLICK_MS = 50L
         private const val DOUBLE_TAP_MS = 300L
         /** Scroll axis units per pixel the fingers move: a wheel notch (10) every 36 px. */
-        private const val SCROLL_UNITS_PER_PX = 10f / 36f
+        const val SCROLL_UNITS_PER_PX = 10f / 36f
         /** How far a resting edge finger may drift, in touch slops, before it is a pointer drag. */
         private const val REST_SLOP = 2f
     }

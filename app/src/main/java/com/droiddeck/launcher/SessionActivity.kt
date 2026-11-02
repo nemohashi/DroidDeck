@@ -2520,7 +2520,27 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         return true
     }
 
+    /**
+     * Android 14+ hands a touchpad's gestures over as a made-up finger dragged from the pointer, with
+     * the scroll in axes of its own (DeX's touchpad on the phone's screen is one). A two-finger swipe
+     * scrolls; no gesture moves the pointer, which Android leaves where it was.
+     */
+    private fun onTouchpadGesture(event: MotionEvent): Boolean {
+        if (Build.VERSION.SDK_INT < 34) return false
+        when (event.classification) {
+            MotionEvent.CLASSIFICATION_NONE -> return false
+            MotionEvent.CLASSIFICATION_TWO_FINGER_SWIPE -> if (event.actionMasked == MotionEvent.ACTION_MOVE) {
+                var dy = event.getAxisValue(MotionEvent.AXIS_GESTURE_SCROLL_Y_DISTANCE)
+                for (i in 0 until event.historySize) dy += event.getHistoricalAxisValue(MotionEvent.AXIS_GESTURE_SCROLL_Y_DISTANCE, i)
+                WaylandCompositor.sendScroll(dy * TouchpadGestures.SCROLL_UNITS_PER_PX)
+            }
+            else -> {}
+        }
+        return true
+    }
+
     private fun onMouse(event: MotionEvent): Boolean {
+        if (onTouchpadGesture(event)) return true
         when (event.actionMasked) {
             MotionEvent.ACTION_HOVER_MOVE, MotionEvent.ACTION_MOVE, MotionEvent.ACTION_HOVER_ENTER ->
                 movePointer(event.x, event.y, "mouse")
