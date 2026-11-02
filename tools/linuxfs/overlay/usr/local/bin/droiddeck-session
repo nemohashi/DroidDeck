@@ -33,7 +33,7 @@ prepare_locale() {
 
 clear_stale_tmp() {
   local running names=() n
-  running=$(pgrep -af 'steamwebhelper|steamrtarm64/steam|steamrt64/steam|--type=|droiddeck-appimage-run|dbus-run-session|dbus-daemon.*--session|dbus-launch|kwin|plasmashell' 2>/dev/null)
+  running=$(pgrep -af 'steamwebhelper|steamrtarm64/steam|steamrt64/steam|--type=|droiddeck-appimage-run|dbus-run-session|dbus-daemon.*--session|dbus-launch|kwin|plasmashell|gamescope|Xwayland|Xvnc|Xvfb' 2>/dev/null)
   case $running in
     *steamwebhelper* | *steamrtarm64/steam* | *steamrt64/steam*) ;;
     *) names+=(-o -name 'mangohud.????????' -o -name '.com.valvesoftware.Steam.??????'
@@ -48,6 +48,11 @@ clear_stale_tmp() {
   case $running in
     *kwin* | *plasmashell*) ;;
     *) names+=(-o \( -type d -empty -name 'plasma-csd-generator.??????' \)) ;;
+  esac
+  # A killed session's lock keeps its display number: the X servers treat the pid as alive once Android hands it to another app.
+  case $running in
+    *kwin* | *gamescope* | *Xwayland* | *Xvnc* | *Xvfb*) ;;
+    *) names+=(-o \( -type f -name '.X[0-9]*-lock' \)) ;;
   esac
   [ ${#names[@]} -gt 0 ] || return 0
   n=$(find /tmp -mindepth 1 -maxdepth 1 \( "${names[@]:1}" \) -print -exec rm -rf {} + 2>/dev/null | wc -l)
