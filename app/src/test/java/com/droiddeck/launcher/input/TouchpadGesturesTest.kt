@@ -74,8 +74,34 @@ class TouchpadGesturesTest {
         assertEquals(listOf("scroll -10"), calls)
     }
 
+    @Test fun twoFingersLandingTogetherScrollEvenWhenOneStartsMovingFirst() {
+        touch(MotionEvent.ACTION_DOWN, 0, 600f to 900f)
+        touch(MotionEvent.ACTION_POINTER_DOWN, 1, 600f to 900f, 800f to 900f)
+        // The second finger is past the slop while the first has barely moved: still a scroll.
+        touch(MotionEvent.ACTION_MOVE, 0, 600f to 902f, 800f to 925f)
+        touch(MotionEvent.ACTION_MOVE, 0, 600f to 930f, 800f to 966f)
+        touch(MotionEvent.ACTION_MOVE, 0, 600f to 966f, 800f to 1000f)
+        touch(MotionEvent.ACTION_POINTER_UP, 1, 600f to 966f, 800f to 1000f)
+        touch(MotionEvent.ACTION_UP, 0, 600f to 966f)
+        assertTrue(calls.toString(), calls.none { it.startsWith("button") })
+        assertTrue(calls.toString(), calls.any { it.startsWith("scroll") })
+    }
+
+    @Test fun theFingerLeftBehindAfterAScrollDoesNotMoveThePointer() {
+        touch(MotionEvent.ACTION_DOWN, 0, 600f to 900f)
+        touch(MotionEvent.ACTION_POINTER_DOWN, 1, 600f to 900f, 800f to 900f)
+        touch(MotionEvent.ACTION_MOVE, 0, 600f to 930f, 800f to 930f)
+        touch(MotionEvent.ACTION_MOVE, 0, 600f to 966f, 800f to 966f)
+        touch(MotionEvent.ACTION_POINTER_UP, 1, 600f to 966f, 800f to 966f)
+        touch(MotionEvent.ACTION_MOVE, 0, 600f to 1000f)
+        touch(MotionEvent.ACTION_MOVE, 0, 600f to 1100f)
+        touch(MotionEvent.ACTION_UP, 0, 600f to 1100f)
+        assertEquals(listOf("scroll -10"), calls)
+    }
+
     @Test fun outsideTheStripAHeldFingerStillDragsWithTheLeftButton() {
         touch(MotionEvent.ACTION_DOWN, 0, 600f to 900f)
+        time += 300   // the finger rests before the other one lands: a held button, not a scroll
         touch(MotionEvent.ACTION_POINTER_DOWN, 1, 600f to 900f, 1200f to 600f)
         touch(MotionEvent.ACTION_MOVE, 0, 600f to 900f, 1200f to 700f)
         touch(MotionEvent.ACTION_POINTER_UP, 1, 600f to 900f, 1200f to 700f)

@@ -219,7 +219,10 @@ class TouchpadGestures(
                     if (!holdDrag && !scrolled) {
                         val anchorMoved = abs(event.getX(ai) - anchorStartX) + abs(event.getY(ai) - anchorStartY)
                         val moverMoved = abs(mx - moverStartX) + abs(my - moverStartY)
-                        if (moverMoved > slopPx && anchorMoved < slopPx) {
+                        // Only a finger that was already resting when the second one landed is a held
+                        // button: two fingers landing together are a scroll, however unevenly they
+                        // start moving.
+                        if (moverMoved > slopPx && anchorMoved < slopPx && secondDownAt - downAt >= HOLD_DRAG_MIN_MS) {
                             holdDrag = true
                             secondWasTap = false
                             if (!dragging) {
@@ -254,6 +257,9 @@ class TouchpadGestures(
                     }
                     return true
                 }
+                // The finger left behind when the other one lifts first after a two-finger gesture
+                // does not move the pointer: a scroll would push it up the screen a little each time.
+                if (twoFingers) return true
                 val dx = event.x - lastX
                 val dy = event.y - lastY
                 lastX = event.x; lastY = event.y
@@ -324,6 +330,9 @@ class TouchpadGestures(
         private const val TAP_MS = 300L
         private const val CLICK_MS = 50L
         private const val DOUBLE_TAP_MS = 300L
+        /** How long the first finger must have been down before a second one can make it a held
+         *  button; fingers landing closer together than this are a two-finger gesture. */
+        private const val HOLD_DRAG_MIN_MS = 150L
         /** Scroll axis units per pixel the fingers move: a wheel notch (10) every 36 px. */
         const val SCROLL_UNITS_PER_PX = 10f / 36f
         /** How far a resting edge finger may drift, in touch slops, before it is a pointer drag. */
