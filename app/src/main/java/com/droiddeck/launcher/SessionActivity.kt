@@ -223,6 +223,8 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     private val guestKeysDown = mutableSetOf<Int>()
     private val guestButtonsDown = mutableMapOf<Int, Boolean>()
     private lateinit var surfaceView: SurfaceView
+    /** Takes the touches nothing above it does, for [onTouchEvent]; see where it is added. */
+    private lateinit var touchCatcher: View
     private lateinit var sessionOverlay: ComposeView
     private lateinit var loading: LoadingState
     private lateinit var hud: DroidDeckHudHost
@@ -751,6 +753,20 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         surfaceView = SurfaceView(this)
         surfaceView.holder.addCallback(this)
         root.addView(surfaceView)
+        // Touches on the picture go to a view of their own rather than falling through to
+        // Activity.onTouchEvent: Android hands a later finger to a view only when the first one went
+        // to a view, so with a thumb resting on the picture, the other hand's touch on a desktop
+        // button went to the touchpad instead and moved the pointer. Window coordinates, as before.
+        // The on-screen controls above take every touch while they are shown, and hand the misses on.
+        touchCatcher = View(this).apply {
+            setOnTouchListener { v, event ->
+                val at = IntArray(2).also { v.getLocationInWindow(it) }
+                event.offsetLocation(at[0].toFloat(), at[1].toFloat())
+                this@SessionActivity.onTouchEvent(event)
+                true
+            }
+        }
+        root.addView(touchCatcher)
         root.addOnLayoutChangeListener { _, l, t, r, b, ol, ot, or, ob ->
             if (r - l != or - ol || b - t != ob - ot) uiHandler.post { applyUnfoldedControls() }
         }
@@ -3691,7 +3707,8 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                     android.widget.LinearLayout.LayoutParams.WRAP_CONTENT))
                 addView(panel, android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
             }
-            sessionRoot.addView(column, sessionRoot.indexOfChild(surfaceView) + 1)
+            // Just above the surface and its touches: the on-screen pad, keyboard and drawer still draw over it.
+            sessionRoot.addView(column, sessionRoot.indexOfChild(touchCatcher) + 1)
             unfoldedColumn = column
             unfoldedPanel = panel
             showUnfoldedDeckPanel()
