@@ -329,6 +329,12 @@ class SessionService : Service() {
             stopSelf(startId)
             return START_NOT_STICKY
         }
+        // The policy decides the notification's actions, and when the app is in front the system
+        // may post this notification seconds later with exactly what it is given here, over any
+        // notify() in between: read the policy first.
+        if (!SessionState.running) {
+            suspendPolicy = SessionPrefs.suspendPolicy(this, intent?.getStringExtra(EXTRA_MODE) ?: MODE_STEAM)
+        }
         startForeground(NOTIFICATION_ID, buildNotification())
         if (SessionState.running) return START_NOT_STICKY
         if (SessionState.stopRequested) {
@@ -2119,6 +2125,14 @@ class SessionService : Service() {
             updateSuspendPolicy()
             return
         }
+        // Never: the session is used from elsewhere (a VNC client); a swipe in recents while
+        // doing something else on the phone must not end it. The notification's Stop still does.
+        if (suspendPolicy == SessionPrefs.SUSPEND_NEVER && SessionState.running) {
+            Log.i(TAG, "task removed - the session keeps running (background behavior: never)")
+            activityVisible = false
+            updateSuspendPolicy()
+            return
+        }
         Log.i(TAG, "task removed - ending the session")
         stopSession(0)
         super.onTaskRemoved(rootIntent)
@@ -2240,6 +2254,14 @@ class SessionService : Service() {
                         PendingIntent.FLAG_IMMUTABLE,
                     )
                     addAction(Notification.Action.Builder(null, getString(R.string.suspend_now), suspend).build())
+                } else if (suspendPolicy == SessionPrefs.SUSPEND_NEVER) {
+                    // Never keeps running until asked here; like Manual's pause it then waits for Resume.
+                    val pause = PendingIntent.getService(
+                        this@SessionService, 4,
+                        Intent(this@SessionService, SessionService::class.java).setAction(ACTION_PAUSE_NOW),
+                        PendingIntent.FLAG_IMMUTABLE,
+                    )
+                    addAction(Notification.Action.Builder(null, getString(R.string.suspend_now), pause).build())
                 }
             }
             .addAction(Notification.Action.Builder(null, getString(R.string.stop_session), stop).build())
