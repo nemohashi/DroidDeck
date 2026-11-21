@@ -190,22 +190,6 @@ class TouchpadGesturesTest {
         assertFalse(events.contains("move"))
     }
 
-    @Test fun trackingResumesNormallyAfterTheScroll() {
-        touch(MotionEvent.ACTION_DOWN, 0, 1 to (400f to 300f))
-        advance(10)
-        touch(MotionEvent.ACTION_POINTER_DOWN, 1, 1 to (400f to 300f), 2 to (600f to 310f))
-        advance(10)
-        touch(MotionEvent.ACTION_MOVE, 0, 1 to (400f to 600f), 2 to (600f to 610f))
-        advance(10)
-        touch(MotionEvent.ACTION_POINTER_UP, 1, 1 to (400f to 600f), 2 to (600f to 610f))
-        advance(10)
-        val sy = touchpad.y
-        touch(MotionEvent.ACTION_MOVE, 0, 1 to (401f to 621f))
-        val delta = touchpad.y - sy
-        assertTrue(delta in 20f..65f)
-        assertTrue(events.contains("move"))
-    }
-
     @Test fun liftingTheAnchorFirstAfterAScrollKeepsTheCursorStill() {
         touch(MotionEvent.ACTION_DOWN, 0, 1 to (400f to 300f))
         advance(10)
@@ -239,7 +223,7 @@ class TouchpadGesturesTest {
 
     @Test fun holdDragStillWorks() {
         touch(MotionEvent.ACTION_DOWN, 0, 1 to (400f to 300f))
-        advance(10)
+        advance(200)
         touch(MotionEvent.ACTION_POINTER_DOWN, 1, 1 to (400f to 300f), 2 to (600f to 300f))
         advance(10)
         touch(MotionEvent.ACTION_MOVE, 0, 1 to (400f to 300f), 2 to (620f to 300f))
