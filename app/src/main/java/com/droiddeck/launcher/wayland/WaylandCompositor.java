@@ -365,4 +365,16 @@ public final class WaylandCompositor {
         pendingDeltaY -= y;
         nativeSendSceneInput(6, x, y);
     }
+    /** A smooth vertical scroll at the pointer, in axis units: a wheel notch is 10, negative = up.
+     *  Sent a little at a time (a frame's worth of a touch scroll), the programs scroll smoothly. It
+     *  goes as 120ths of a notch (type 11), and what is left below one is kept for the next call. */
+    private static float scrollRest120;
+
+    public static synchronized void sendScroll(float units) {
+        scrollRest120 += units * 12f;
+        int v120 = (int) scrollRest120;
+        if (v120 == 0) return;
+        scrollRest120 -= v120;
+        nativeSendSceneInput(11, v120, 0);
+    }
 }

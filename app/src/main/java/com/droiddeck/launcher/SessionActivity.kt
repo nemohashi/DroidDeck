@@ -1159,7 +1159,21 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                     onClose = { pcKeyboardOpen = false },
                 )
                 if (SessionState.mode == SessionService.MODE_DESKTOP && !drawerOpen && !pcKeyboardOpen && !loading.visible)
-                    com.droiddeck.launcher.ui.KeyboardFab { keyboard?.toggle() }
+                    com.droiddeck.launcher.ui.DesktopButtons(
+                        onKeyboard = { keyboard?.toggle() },
+                        onSend = {
+                            if (CompositorHost.isStarted) {
+                                sendGuestKey(29, true); sendGuestKey(28, true) // KEY_LEFTCTRL, KEY_ENTER
+                                sendGuestKey(28, false); sendGuestKey(29, false)
+                            }
+                        },
+                        onScroll = { units -> if (CompositorHost.isStarted) WaylandCompositor.sendScroll(units) },
+                        onHold = ::desktopButtonHeld,
+                        onBuzz = { ms ->
+                            @Suppress("DEPRECATION")
+                            (getSystemService(VIBRATOR_SERVICE) as? android.os.Vibrator)?.vibrate(ms)
+                        },
+                    )
                 if (!drawerDocked) SessionMenu(docked = false)
                 LaunchedEffect(achievementsOpen) {
                     if (achievementsOpen) {
@@ -3092,6 +3106,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         override fun onButton(button: Int, pressed: Boolean, x: Float, y: Float) {
             if (!pointerLocked) movePointer(x, y)
             if (pressed && !pointerLocked) lastTapY = y
+            Log.i(INPUT_TAG, "touchpad button $button ${if (pressed) "down" else "up"} at ${x.toInt()},${y.toInt()}")
             heldButtons.set(1, button, pressed)
         }
         override fun onWheel(steps: Int) { sendSceneWheel(steps) }
@@ -3213,10 +3228,41 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         cursorVisible = false
     }
 
+    /** Where the touchpad put the pointer lately (uptime, x, y), for [desktopButtonHeld]. */
+    private val pointerTrail = ArrayDeque<Triple<Long, Float, Float>>()
+    /** A desktop button is held: other touches on the picture are left alone until they lift. */
+    private var buttonHeld = false
+    private var touchesIgnoredUntilDown = false
+
+    /**
+     * A thumb reaching for a desktop button touches the picture first with its base, beside the
+     * button, and that contact jumps as the tip lands: on the touchpad it threw the pointer to a
+     * corner, and the button then scrolled whatever was there. So while a button is held the other
+     * contacts are not the touchpad's, until they lift, and a pointer the touchpad moved in the
+     * moment before goes back to where it rested.
+     */
+    private fun desktopButtonHeld(held: Boolean) {
+        buttonHeld = held
+        if (!held) return
+        touchesIgnoredUntilDown = true
+        if (::touchpad.isInitialized) touchpad.cancel()
+        val now = SystemClock.uptimeMillis()
+        val last = pointerTrail.lastOrNull() ?: return
+        if (now - last.first > BUTTON_RESTORE_MS) return
+        val rest = pointerTrail.lastOrNull { now - it.first > BUTTON_RESTORE_MS } ?: return
+        Log.i(INPUT_TAG, "desktop button: the pointer goes back to ${rest.second.toInt()},${rest.third.toInt()}")
+        pointerTrail.clear()
+        movePointer(rest.second, rest.third)
+    }
+
     private fun movePointer(x: Float, y: Float, fromMouse: Boolean = false) {
         val rect = pointerSurfaceRect() ?: return
         val cx = x.coerceIn(rect.left, rect.right)
         val cy = y.coerceIn(rect.top, rect.bottom)
+        if (abs(cx - cursorPos.x) + abs(cy - cursorPos.y) > 120f)
+            Log.i(INPUT_TAG, "pointer jump by ${if (fromMouse) "mouse" else "touch"}: ${cursorPos.x.toInt()},${cursorPos.y.toInt()} -> ${cx.toInt()},${cy.toInt()}")
+        if (fromMouse) pointerTrail.clear() else pointerTrail.addLast(Triple(SystemClock.uptimeMillis(), cx, cy))
+        while (pointerTrail.size > 64) pointerTrail.removeFirst()
         WaylandCompositor.nativeSendPointer(1, InputSpace.x(cx, outputView().width), InputSpace.y(cy, outputView().height))
         showCursor(cx, cy, fromMouse)
     }
@@ -4037,6 +4083,15 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_POINTER_DOWN)
+            Log.i(INPUT_TAG, "touch on the picture: ${MotionEvent.actionToString(event.actionMasked)} at " +
+                "${event.getX(event.actionIndex).toInt()},${event.getY(event.actionIndex).toInt()}, ${event.pointerCount} finger(s), " +
+                "source ${event.source}, tool ${event.getToolType(event.actionIndex)}, size ${event.getTouchMajor(event.actionIndex).toInt()}, " +
+                "${if (usingTouchpad()) "touchpad" else "direct"}${if (buttonHeld) ", ignored: a button is held" else ""}")
+        if (!event.isFromSource(android.view.InputDevice.SOURCE_MOUSE)) {
+            if (event.actionMasked == MotionEvent.ACTION_DOWN && !buttonHeld) touchesIgnoredUntilDown = false
+            if (buttonHeld || touchesIgnoredUntilDown) return true
+        }
         val tap = noteTap(event)
         // A tap on the picture while the soft keyboard is up only puts the keyboard away: what the
         // touch started is cancelled rather than clicked, so the field being typed in stays as it was.
@@ -5589,6 +5644,9 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         private const val ALIGN_PICTURE_RIGHT = 6
         private const val KEYBOARD_PAN_MARGIN_DP = 56f
         private const val TAP_MS = 300L
+        private const val INPUT_TAG = "DesktopInput"
+        /** How far back a pointer the touchpad just moved goes when a desktop button is touched. */
+        private const val BUTTON_RESTORE_MS = 250L
         private val RUNTIME_LINES = PackageLines(
             R.string.session_runtime_downloading, R.string.session_runtime_downloading_mb,
             R.string.session_runtime_checking, R.string.session_runtime_unpacking,
