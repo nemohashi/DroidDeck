@@ -4188,6 +4188,8 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                     }
                     if (event.actionMasked == MotionEvent.ACTION_DOWN) {
                         touchpad.desktop = SessionState.mode == SessionService.MODE_DESKTOP
+                        // The desktop's only: a game may have a use for a finger on the edge.
+                        touchpad.restPx = if (touchpad.desktop) EDGE_REST_DP * resources.displayMetrics.density else 0f
                         placeTouchpadAtGuest(rect)
                     }
                     touchpad.onTouch(event)
@@ -5664,6 +5666,8 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         private const val INPUT_TAG = "DesktopInput"
         /** How far back a pointer the touchpad just moved goes when a desktop button is touched. */
         private const val BUTTON_RESTORE_MS = 250L
+        /** The strip along the left edge where a finger that stays is the thumb holding the device. */
+        private const val EDGE_REST_DP = 64f
         private val RUNTIME_LINES = PackageLines(
             R.string.session_runtime_downloading, R.string.session_runtime_downloading_mb,
             R.string.session_runtime_checking, R.string.session_runtime_unpacking,

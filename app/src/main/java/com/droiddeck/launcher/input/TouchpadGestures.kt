@@ -17,6 +17,16 @@ class TouchpadGestures(
     var bounds: android.graphics.RectF = android.graphics.RectF(0f, 0f, 1f, 1f)
     var sensitivity = 1.15f
     var desktop = false
+    /** Width of the left edge strip where a finger that stays is the hand holding the device, in view
+     *  pixels; 0 = none (see [onTouch]). */
+    var restPx = 0f
+
+    // The resting finger, left out of the touchpad's events until it lifts.
+    private var restingId = -1
+    private var restDownX = 0f
+    private var restDownY = 0f
+    private var restDownAt = 0L
+    private var restAlone = false
 
     private val handler = Handler(Looper.getMainLooper())
     private var lastX = 0f
@@ -78,6 +88,7 @@ class TouchpadGestures(
         anchorId = -1
         moverId = -1
         lastTapAt = 0L
+        restingId = -1
     }
 
     fun place(px: Float, py: Float) {
@@ -99,7 +110,73 @@ class TouchpadGestures(
         }
     }
 
+    /**
+     * Hands the touch on to [gesture] without a finger resting in the left strip ([restPx]): holding
+     * an unfolded Fold leaves the left thumb on the screen's edge, and taken for a finger it turns the
+     * other hand's touches into two-finger gestures and long presses. A finger that comes down in the
+     * strip waits: lifted at once it is a tap, slid off it moves the pointer, and while it stays, the
+     * other fingers work the touchpad as if it were not there.
+     */
     fun onTouch(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                restingId = -1
+                if (event.x < restPx) {
+                    restingId = event.getPointerId(0)
+                    restDownX = event.x; restDownY = event.y; restDownAt = event.eventTime; restAlone = true
+                    return true
+                }
+            }
+            MotionEvent.ACTION_MOVE -> if (restingId != -1 && restAlone && event.pointerCount == 1) {
+                if (abs(event.x - restDownX) + abs(event.y - restDownY) <= slopPx * REST_SLOP) return true
+                // Slid off the strip: a pointer drag after all, from here.
+                restingId = -1
+                val down = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_DOWN }
+                try { return gesture(down) } finally { down.recycle() }
+            }
+            MotionEvent.ACTION_UP -> if (restingId != -1 && event.getPointerId(0) == restingId) {
+                restingId = -1
+                // Lifted at once, alone: a tap in the strip, a click as anywhere else.
+                if (restAlone && event.eventTime - restDownAt < TouchTiming.TAP_MS) {
+                    val down = MotionEvent.obtain(restDownAt, restDownAt, MotionEvent.ACTION_DOWN, restDownX, restDownY, 0)
+                    gesture(down)
+                    down.recycle()
+                    return gesture(event)
+                }
+                return true
+            }
+            MotionEvent.ACTION_CANCEL -> restingId = -1
+        }
+        if (restingId == -1) return gesture(event)
+        restAlone = false
+        val rest = event.findPointerIndex(restingId)
+        if (rest < 0) return gesture(event)
+        if (event.actionMasked == MotionEvent.ACTION_POINTER_UP && event.actionIndex == rest) {
+            restingId = -1
+            return true
+        }
+        val others = without(event, rest) ?: return true
+        try { return gesture(others) } finally { others.recycle() }
+    }
+
+    /** [event] without the pointer at index [drop], its action renumbered; null when nothing is left. */
+    private fun without(event: MotionEvent, drop: Int): MotionEvent? {
+        val keep = (0 until event.pointerCount).filter { it != drop }
+        if (keep.isEmpty()) return null
+        val masked = event.actionMasked
+        val action = when {
+            masked != MotionEvent.ACTION_POINTER_DOWN && masked != MotionEvent.ACTION_POINTER_UP -> masked
+            event.actionIndex == drop -> MotionEvent.ACTION_MOVE
+            keep.size == 1 -> if (masked == MotionEvent.ACTION_POINTER_DOWN) MotionEvent.ACTION_DOWN else MotionEvent.ACTION_UP
+            else -> masked or (keep.indexOf(event.actionIndex) shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)
+        }
+        val properties = Array(keep.size) { MotionEvent.PointerProperties().also { p -> event.getPointerProperties(keep[it], p) } }
+        val coords = Array(keep.size) { MotionEvent.PointerCoords().also { c -> event.getPointerCoords(keep[it], c) } }
+        return MotionEvent.obtain(event.downTime, event.eventTime, action, keep.size, properties, coords, event.metaState,
+            event.buttonState, event.xPrecision, event.yPrecision, event.deviceId, event.edgeFlags, event.source, event.flags)
+    }
+
+    private fun gesture(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 releaseClick()
@@ -148,7 +225,11 @@ class TouchpadGestures(
                         val moverMoved = abs(mx - moverStartX) + abs(my - moverStartY)
                         if (anchorMoved >= slopPx) {
                             scrollLocked = true
-                        } else if (moverMoved > slopPx * HOLD_DRAG_MOVER_SLOPS && anchorMoved < slopPx * HOLD_DRAG_ANCHOR_SLOPS) {
+                        } else if (moverMoved > slopPx * HOLD_DRAG_MOVER_SLOPS && anchorMoved < slopPx * HOLD_DRAG_ANCHOR_SLOPS &&
+                            secondDownAt - downAt >= HOLD_DRAG_MIN_MS) {
+                            // Only a finger that was already resting when the second one landed is a held
+                            // button: two fingers landing together are a scroll, however unevenly they
+                            // start moving.
                             holdDrag = true
                             secondWasTap = false
                             if (!dragging) {
@@ -210,6 +291,9 @@ class TouchpadGestures(
                     }
                     return true
                 }
+                // The finger left behind when the other one lifts first after a two-finger gesture
+                // does not move the pointer: a scroll would push it up the screen a little each time.
+                if (twoFingers) return true
                 for (h in 0 until event.historySize)
                     trackMove(event.getHistoricalX(0, h), event.getHistoricalY(0, h))
                 trackMove(event.x, event.y)
@@ -282,5 +366,12 @@ class TouchpadGestures(
         private const val PINCH_STEP_PX = 60f
         private const val HOLD_DRAG_MOVER_SLOPS = 2f
         private const val HOLD_DRAG_ANCHOR_SLOPS = 0.5f
+        /** How long the first finger must have been down before a second one can make it a held
+         *  button; fingers landing closer together than this are a two-finger gesture. */
+        private const val HOLD_DRAG_MIN_MS = 150L
+        /** How far a resting edge finger may drift, in touch slops, before it is a pointer drag. */
+        private const val REST_SLOP = 2f
+        /** Scroll axis units per pixel the fingers move: a wheel notch (10) every 36 px. */
+        const val SCROLL_UNITS_PER_PX = 10f / 36f
     }
 }

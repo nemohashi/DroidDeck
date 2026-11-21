@@ -1,0 +1,137 @@
+package com.droiddeck.launcher.input
+
+import android.os.Looper
+import android.view.MotionEvent
+import java.time.Duration
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
+
+/** The fork's touchpad rules: a thumb resting in the left strip, fingers landing together, the finger left behind. */
+@RunWith(RobolectricTestRunner::class)
+@Config(manifest = Config.NONE, sdk = [33])
+class TouchpadRestStripTest {
+    private val calls = mutableListOf<String>()
+    private lateinit var pad: TouchpadGestures
+    private var time = 1000L
+
+    @Before fun setUp() {
+        pad = TouchpadGestures(10f, object : PointerGestures.Listener {
+            override fun onMove(x: Float, y: Float) { calls += "move ${x.toInt()},${y.toInt()}" }
+            override fun onButton(button: Int, pressed: Boolean, x: Float, y: Float) { calls += "button $button $pressed" }
+            override fun onWheel(steps: Int) { calls += "wheel $steps" }
+            override fun onScroll(dx: Float, dy: Float) { calls += "scroll" }
+            override fun onScrollEnd() { calls += "scroll end" }
+            override fun onLongPress() { calls += "long" }
+        })
+        pad.bounds = android.graphics.RectF(0f, 0f, 2000f, 2000f)
+        pad.place(1000f, 1000f)
+        pad.desktop = true
+        pad.restPx = 150f
+    }
+
+    @Test fun withAThumbRestingInTheStripTheOtherFingerMovesThePointerFromWhereItWas() {
+        touch(MotionEvent.ACTION_DOWN, 0, 40f to 900f)
+        touch(MotionEvent.ACTION_POINTER_DOWN, 1, 40f to 900f, 1200f to 600f)
+        touch(MotionEvent.ACTION_MOVE, 0, 41f to 902f, 1200f to 640f)
+        touch(MotionEvent.ACTION_POINTER_UP, 1, 41f to 902f, 1200f to 640f)
+        touch(MotionEvent.ACTION_UP, 0, 41f to 902f)
+        // Relative, from (1000, 1000): no jump to the finger at (1200, 600), no button, no scroll.
+        val move = calls.single()
+        assertTrue(move, move.startsWith("move 1000,") && move.substringAfter(",").toInt() > 1000)
+    }
+
+    @Test fun withAThumbRestingInTheStripTheOtherFingersTapIsAClick() {
+        touch(MotionEvent.ACTION_DOWN, 0, 40f to 900f)
+        time += 400
+        touch(MotionEvent.ACTION_POINTER_DOWN, 1, 40f to 900f, 1200f to 600f)
+        touch(MotionEvent.ACTION_POINTER_UP, 1, 40f to 900f, 1200f to 600f)
+        time += 400
+        touch(MotionEvent.ACTION_UP, 0, 40f to 900f)
+        clickReleased()
+        assertEquals(listOf("button ${PointerGestures.BTN_LEFT} true", "button ${PointerGestures.BTN_LEFT} false"), calls)
+    }
+
+    @Test fun twoFingersBesideARestingThumbStillScroll() {
+        touch(MotionEvent.ACTION_DOWN, 0, 40f to 900f)
+        touch(MotionEvent.ACTION_POINTER_DOWN, 1, 40f to 900f, 600f to 900f)
+        touch(MotionEvent.ACTION_POINTER_DOWN, 2, 40f to 900f, 600f to 900f, 800f to 900f)
+        touch(MotionEvent.ACTION_MOVE, 0, 40f to 900f, 600f to 930f, 800f to 930f)
+        touch(MotionEvent.ACTION_MOVE, 0, 40f to 900f, 600f to 966f, 800f to 966f)
+        assertTrue(calls.toString(), calls.isNotEmpty() && calls.all { it == "scroll" })
+    }
+
+    @Test fun twoFingersLandingTogetherScrollEvenWhenOneStartsMovingFirst() {
+        touch(MotionEvent.ACTION_DOWN, 0, 600f to 900f)
+        touch(MotionEvent.ACTION_POINTER_DOWN, 1, 600f to 900f, 800f to 900f)
+        // The second finger is past the slop while the first has barely moved: still a scroll.
+        touch(MotionEvent.ACTION_MOVE, 0, 600f to 902f, 800f to 925f)
+        touch(MotionEvent.ACTION_MOVE, 0, 600f to 930f, 800f to 966f)
+        touch(MotionEvent.ACTION_MOVE, 0, 600f to 966f, 800f to 1000f)
+        touch(MotionEvent.ACTION_POINTER_UP, 1, 600f to 966f, 800f to 1000f)
+        touch(MotionEvent.ACTION_UP, 0, 600f to 966f)
+        assertTrue(calls.toString(), calls.none { it.startsWith("button") })
+        assertTrue(calls.toString(), calls.any { it == "scroll" })
+    }
+
+    @Test fun theFingerLeftBehindAfterAScrollDoesNotMoveThePointer() {
+        touch(MotionEvent.ACTION_DOWN, 0, 600f to 900f)
+        touch(MotionEvent.ACTION_POINTER_DOWN, 1, 600f to 900f, 800f to 900f)
+        touch(MotionEvent.ACTION_MOVE, 0, 600f to 930f, 800f to 930f)
+        touch(MotionEvent.ACTION_MOVE, 0, 600f to 966f, 800f to 966f)
+        touch(MotionEvent.ACTION_POINTER_UP, 1, 600f to 966f, 800f to 966f)
+        touch(MotionEvent.ACTION_MOVE, 0, 600f to 1000f)
+        touch(MotionEvent.ACTION_MOVE, 0, 600f to 1100f)
+        touch(MotionEvent.ACTION_UP, 0, 600f to 1100f)
+        assertTrue(calls.toString(), calls.none { it.startsWith("move") || it.startsWith("button") })
+    }
+
+    @Test fun outsideTheStripAHeldFingerStillDragsWithTheLeftButton() {
+        touch(MotionEvent.ACTION_DOWN, 0, 600f to 900f)
+        time += 300   // the finger rests before the other one lands: a held button, not a scroll
+        touch(MotionEvent.ACTION_POINTER_DOWN, 1, 600f to 900f, 1200f to 600f)
+        touch(MotionEvent.ACTION_MOVE, 0, 600f to 900f, 1200f to 700f)
+        touch(MotionEvent.ACTION_POINTER_UP, 1, 600f to 900f, 1200f to 700f)
+        touch(MotionEvent.ACTION_UP, 0, 600f to 900f)
+        assertEquals("button ${PointerGestures.BTN_LEFT} true", calls.first())
+        assertTrue(calls.toString(), calls.none { it.startsWith("scroll") })
+    }
+
+    @Test fun aTapInTheStripIsStillAClick() {
+        touch(MotionEvent.ACTION_DOWN, 0, 40f to 900f)
+        touch(MotionEvent.ACTION_UP, 0, 40f to 900f)
+        clickReleased()
+        assertEquals(listOf("button ${PointerGestures.BTN_LEFT} true", "button ${PointerGestures.BTN_LEFT} false"), calls)
+    }
+
+    @Test fun aFingerSlidingOutOfTheStripMovesThePointer() {
+        touch(MotionEvent.ACTION_DOWN, 0, 40f to 900f)
+        touch(MotionEvent.ACTION_MOVE, 0, 50f to 900f)
+        assertTrue(calls.isEmpty())
+        touch(MotionEvent.ACTION_MOVE, 0, 90f to 900f)
+        touch(MotionEvent.ACTION_MOVE, 0, 130f to 900f)
+        touch(MotionEvent.ACTION_UP, 0, 130f to 900f)
+        assertTrue(calls.toString(), calls.isNotEmpty() && calls.all { it.startsWith("move ") })
+    }
+
+    /** A tap's click is held a moment before it is released, so a game sees it. */
+    private fun clickReleased() = shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(100))
+
+    /** One event; [index] is the action index, the pairs every finger's x to y, ids 0, 1, ... */
+    private fun touch(action: Int, index: Int, vararg fingers: Pair<Float, Float>) {
+        time += 20
+        val properties = Array(fingers.size) { MotionEvent.PointerProperties().apply { id = it; toolType = MotionEvent.TOOL_TYPE_FINGER } }
+        val coords = Array(fingers.size) { MotionEvent.PointerCoords().apply { x = fingers[it].first; y = fingers[it].second } }
+        val masked = if (action == MotionEvent.ACTION_POINTER_DOWN || action == MotionEvent.ACTION_POINTER_UP)
+            action or (index shl MotionEvent.ACTION_POINTER_INDEX_SHIFT) else action
+        val event = MotionEvent.obtain(1000L, time, masked, fingers.size, properties, coords, 0, 0, 1f, 1f, 0, 0,
+            android.view.InputDevice.SOURCE_TOUCHSCREEN, 0)
+        pad.onTouch(event)
+        event.recycle()
+    }
+}
