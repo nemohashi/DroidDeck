@@ -85,6 +85,18 @@ public final class LinuxRuntimeInstaller {
         return LinuxRuntime.isInstalled(context) ? rootfsVersion(context) : null;
     }
 
+    /**
+     * A runtime of the Arch line (r1..r9, before the Ubuntu runtime), kept as it is: this fork's is set up
+     * by hand (packages, VS Code, Chrome, the input method), and an update would keep only the home
+     * directory of it. The catalog's release is still used for the add-on packs; the move to Ubuntu
+     * is made deliberately, by removing the runtime first.
+     */
+    public static boolean heldRuntime(Context context) {
+        if (!LinuxRuntime.hasRootfs(context)) return false;
+        String version = rootfsVersion(context);
+        return version != null && !version.isEmpty() && !version.startsWith("ubuntu");
+    }
+
     private static String rootfsVersion(Context context) {
         File marker = new File(LinuxRuntime.rootDir(context), VERSION_FILE);
         if (!marker.isFile()) return null;
@@ -151,6 +163,11 @@ public final class LinuxRuntimeInstaller {
             if (packsOnly(app, release, progress)) {
                 job.ok = true;
                 return true;
+            }
+            if (heldRuntime(app)) {
+                Log.i(TAG, "the installed runtime " + rootfsVersion(app) + " is kept; " + release.version + " is not installed over it");
+                job.ok = LinuxRuntime.isInstalled(app);
+                return job.ok;
             }
             job.ok = installOnce(app, release, progress);
             if (job.ok && desktop) keepDesktop(app, progress);
@@ -301,7 +318,8 @@ public final class LinuxRuntimeInstaller {
     }
 
     private static boolean packsOnly(Context context, Release release, ProgressListener listener) {
-        if (!LinuxRuntime.hasRootfs(context) || LinuxRuntime.isInstalled(context) || !release.version.equals(rootfsVersion(context))) return false;
+        if (!LinuxRuntime.hasRootfs(context) || LinuxRuntime.isInstalled(context) ||
+                (!release.version.equals(rootfsVersion(context)) && !heldRuntime(context))) return false;
         File root = LinuxRuntime.rootDir(context);
         try {
             recoverInterruptedSwap(root, new File(root.getParentFile(), LinuxRuntime.DIR + ".new"), new File(root.getParentFile(), LinuxRuntime.DIR + ".old"));

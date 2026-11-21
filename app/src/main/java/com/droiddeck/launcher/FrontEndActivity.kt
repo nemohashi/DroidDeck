@@ -1161,7 +1161,7 @@ class FrontEndActivity : ComponentActivity() {
                 com.droiddeck.launcher.ui.FloodBehind({ floodProgress }) {
                 FrontEndScreen(
                     FrontEndState(
-                        installed = installed, ready = ready, available = available?.version, removalPending = removalPending, runtimeActionsBlocked = runtimeChangesBlocked(),
+                        installed = installed, ready = ready, available = if (runtimeHeld) installed else available?.version, removalPending = removalPending, runtimeActionsBlocked = runtimeChangesBlocked(),
                         vkBridge = vkBridge, venus = venus, venusHostVulkan = venusHostVulkan, vkBridgeSafe = vkBridgeSafe, bridgeProtonDxvk = bridgeProtonDxvk, adreno = adrenoGpu,
                         shortcutPicker = shortcutPicker,
                         preparingGames = preparingGames,
@@ -2952,8 +2952,8 @@ class FrontEndActivity : ComponentActivity() {
             showRemove = true
             return
         }
-        if (installed != null && release?.version == installed) {
-            showRuntimeActions = release
+        if (installed != null && (release?.version == installed || runtimeHeld)) {
+            showRuntimeActions = release ?: return
             return
         }
         if (release == null) {
@@ -3081,9 +3081,16 @@ class FrontEndActivity : ComponentActivity() {
         }, "runtime-operation").start()
     }
 
+    /** The fork keeps a runtime of the Arch line as it is; see LinuxRuntimeInstaller.heldRuntime. */
+    private val runtimeHeld get() = LinuxRuntimeInstaller.heldRuntime(this)
+
     private fun autoUpdateRuntime() {
         val release = available?.takeIf { catalogFresh } ?: return
         if (!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) || runtimeChangesBlocked() || removalPending) return
+        if (runtimeHeld) {
+            Log.i(TAG, "runtime: ${installed ?: "the installed one"} is kept; ${release.version} is not installed by itself")
+            return
+        }
         if (installed != null) com.droiddeck.launcher.runtime.RuntimeAutoUpdate.seed(this)
         if (release.version == installed) return
         if (installed == null && (OfflineMode.enabled(this) || !com.droiddeck.launcher.core.DeviceSupport.canDraw(this) ||
