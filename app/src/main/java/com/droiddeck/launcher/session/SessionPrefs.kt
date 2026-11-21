@@ -48,6 +48,9 @@ object SessionPrefs {
 
     private fun prefs(context: Context) = context.getSharedPreferences("session", Context.MODE_PRIVATE)
 
+    /** The 0.5.0 line's "automatic, portrait too when unfolded", not an ActivityInfo value; see [orientation]. */
+    private const val ORIENTATION_UNFOLDED_ANY_LEGACY = 1000
+
     val orientationOptions = listOf(
         ActivityInfo.SCREEN_ORIENTATION_USER to R.string.setup_launcher_orientation_auto,
         ActivityInfo.SCREEN_ORIENTATION_PORTRAIT to R.string.setup_orientation_portrait,
@@ -56,19 +59,25 @@ object SessionPrefs {
         ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE to R.string.setup_orientation_reverse,
     )
 
-    fun orientation(context: Context): Int =
-        prefs(context).getInt("orientation", ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE)
+    fun orientation(context: Context): Int {
+        // The 0.5.0 line's own choice, "automatic, portrait too when unfolded": that is what no choice
+        // does now (windowOrientation), so the saved value goes, or it would read as landscape only.
+        if (prefs(context).getInt("orientation", 0) == ORIENTATION_UNFOLDED_ANY_LEGACY) prefs(context).edit().remove("orientation").apply()
+        return prefs(context).getInt("orientation", ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE)
             .takeIf { value -> orientationOptions.any { it.first == value } }
             ?: ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+    }
 
     fun setOrientation(context: Context, orientation: Int) {
         require(orientationOptions.any { it.first == orientation })
         prefs(context).edit().putInt("orientation", orientation).apply()
     }
 
-    fun windowOrientation(context: Context, followScreen: Boolean, smallestWidthDp: Int): Int =
-        if (followScreen && smallestWidthDp >= SessionDisplay.UNFOLDED_MIN_DP && !prefs(context).contains("orientation"))
-            ActivityInfo.SCREEN_ORIENTATION_USER else orientation(context)
+    fun windowOrientation(context: Context, followScreen: Boolean, smallestWidthDp: Int): Int {
+        val chosen = orientation(context)
+        return if (followScreen && smallestWidthDp >= SessionDisplay.UNFOLDED_MIN_DP && !prefs(context).contains("orientation"))
+            ActivityInfo.SCREEN_ORIENTATION_USER else chosen
+    }
 
     fun portrait(context: Context): Boolean = when (orientation(context)) {
         ActivityInfo.SCREEN_ORIENTATION_PORTRAIT -> true
