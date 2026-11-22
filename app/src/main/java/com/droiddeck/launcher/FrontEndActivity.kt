@@ -1670,7 +1670,8 @@ class FrontEndActivity : ComponentActivity() {
                 }
                 showRuntimeActions?.let { release ->
                     com.droiddeck.launcher.ui.RuntimeActionsDialog(
-                        onRepair = { showRuntimeActions = null; if (!runtimeChangesBlocked()) install(release) },
+                        held = runtimeHeld,
+                        onRepair = { showRuntimeActions = null; if (!runtimeChangesBlocked()) install(release, replaceHeld = runtimeHeld) },
                         onRemove = { showRuntimeActions = null; showRemove = true },
                         onDismiss = { showRuntimeActions = null },
                     )
@@ -3055,9 +3056,9 @@ class FrontEndActivity : ComponentActivity() {
         followRuntimeOperation { removal.run(it) }
     }
 
-    private fun install(release: LinuxRuntimeInstaller.Release) {
-        com.droiddeck.launcher.runtime.RuntimeInstallService.start(this, release)
-        followRuntimeOperation { listener -> LinuxRuntimeInstaller.install(this, release, listener) }
+    private fun install(release: LinuxRuntimeInstaller.Release, replaceHeld: Boolean = false) {
+        com.droiddeck.launcher.runtime.RuntimeInstallService.start(this, release, replaceHeld)
+        followRuntimeOperation { listener -> LinuxRuntimeInstaller.install(this, release, listener, replaceHeld) }
     }
 
     private fun followRuntimeOperation(run: (LinuxRuntimeInstaller.ProgressListener) -> Boolean?) {

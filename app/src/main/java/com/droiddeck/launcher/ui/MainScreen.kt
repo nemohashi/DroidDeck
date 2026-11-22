@@ -68,11 +68,11 @@ fun ConfirmDialog(title: String, text: String, confirm: String, onConfirm: () ->
 }
 
 @Composable
-fun RuntimeActionsDialog(onRepair: () -> Unit, onRemove: () -> Unit, onDismiss: () -> Unit) {
+fun RuntimeActionsDialog(onRepair: () -> Unit, onRemove: () -> Unit, onDismiss: () -> Unit, held: Boolean = false) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.runtime_actions_title)) },
-        text = { Text(stringResource(R.string.runtime_actions_text)) },
+        text = { Text(stringResource(if (held) R.string.runtime_actions_text_held else R.string.runtime_actions_text)) },
         confirmButton = { TextButton(onClick = onRepair, modifier = Modifier.focusGlide(CircleShape)) { Text(stringResource(R.string.runtime_repair)) } },
         dismissButton = {
             Row {

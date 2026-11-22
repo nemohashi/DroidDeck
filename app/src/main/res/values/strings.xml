@@ -1542,6 +1542,7 @@
     <string name="runtime_actions_title">Linux runtime</string>
     <string name="runtime_actions_text">Repair reinstalls the runtime\'s system files and keeps Steam, your games and settings. Extras such as the desktop install again when you next use them. Remove deletes everything.</string>
     <string name="runtime_repair">Repair runtime</string>
+    <string name="runtime_actions_text_held">This runtime is of the Arch line and is kept as it is; updates do not touch it. Repair replaces it with the Ubuntu runtime: the home directory stays, everything installed outside it (packages, /opt, /usr/local) has to be installed again. Remove deletes everything.</string>
     <string name="main_applied">Applied: %1$s</string>
     <string name="android_app_open_failed_primary">Could not open %1$s on the primary screen</string>
     <string name="android_app_open_failed_on">Could not open %1$s on %2$s</string>

@@ -89,7 +89,8 @@ public final class LinuxRuntimeInstaller {
      * A runtime of the Arch line (r1..r9, before the Ubuntu runtime), kept as it is: this fork's is set up
      * by hand (packages, VS Code, Chrome, the input method), and an update would keep only the home
      * directory of it. The catalog's release is still used for the add-on packs; the move to Ubuntu
-     * is made deliberately, by removing the runtime first.
+     * is made deliberately, from the runtime button's Repair (install with replaceHeld), which keeps the
+     * home directory the way every runtime update does.
      */
     public static boolean heldRuntime(Context context) {
         if (!LinuxRuntime.hasRootfs(context)) return false;
@@ -135,6 +136,11 @@ public final class LinuxRuntimeInstaller {
     private static final String USER_DATA = "root";
 
     public static boolean install(Context context, Release release, ProgressListener listener) {
+        return install(context, release, listener, false);
+    }
+
+    /** replaceHeld: a runtime heldRuntime() keeps is replaced after all, the user's deliberate move to the Ubuntu runtime. */
+    public static boolean install(Context context, Release release, ProgressListener listener, boolean replaceHeld) {
         Job job;
         boolean owner;
         synchronized (JOB_LOCK) {
@@ -160,11 +166,11 @@ public final class LinuxRuntimeInstaller {
                 }
             };
             boolean desktop = DesktopCatalog.INSTANCE.desktopInstalled(app);
-            if (packsOnly(app, release, progress)) {
+            if (packsOnly(app, release, progress, replaceHeld)) {
                 job.ok = true;
                 return true;
             }
-            if (heldRuntime(app)) {
+            if (heldRuntime(app) && !replaceHeld) {
                 Log.i(TAG, "the installed runtime " + rootfsVersion(app) + " is kept; " + release.version + " is not installed over it");
                 job.ok = LinuxRuntime.isInstalled(app);
                 return job.ok;
@@ -317,9 +323,9 @@ public final class LinuxRuntimeInstaller {
         };
     }
 
-    private static boolean packsOnly(Context context, Release release, ProgressListener listener) {
+    private static boolean packsOnly(Context context, Release release, ProgressListener listener, boolean replaceHeld) {
         if (!LinuxRuntime.hasRootfs(context) || LinuxRuntime.isInstalled(context) ||
-                (!release.version.equals(rootfsVersion(context)) && !heldRuntime(context))) return false;
+                (!release.version.equals(rootfsVersion(context)) && (!heldRuntime(context) || replaceHeld))) return false;
         File root = LinuxRuntime.rootDir(context);
         try {
             recoverInterruptedSwap(root, new File(root.getParentFile(), LinuxRuntime.DIR + ".new"), new File(root.getParentFile(), LinuxRuntime.DIR + ".old"));

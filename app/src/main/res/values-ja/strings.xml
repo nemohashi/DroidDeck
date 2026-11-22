@@ -1370,6 +1370,7 @@
     <string name="runtime_actions_title">Linux実行環境</string>
     <string name="runtime_actions_text">「修復」は実行環境のシステムファイルを再インストールし、Steam、ゲーム、設定は保持します。デスクトップなどの追加機能は、次に使用するときに再度インストールされます。「削除」はすべてを消去します。</string>
     <string name="runtime_repair">実行環境を修復</string>
+    <string name="runtime_actions_text_held">この実行環境は Arch 系のため、自動更新では置き換えません。「修復」は Ubuntu の実行環境に置き換えます。ホーム(/root)は残り、その外に入れたもの(パッケージ、/opt、/usr/local)は入れ直しになります。「削除」はすべてを消去します。</string>
     <string name="main_applied">適用しました：%1$s</string>
     <string name="android_app_open_failed_primary">メイン画面で%1$sを開けませんでした</string>
     <string name="android_app_open_failed_on">%2$sで%1$sを開けませんでした</string>

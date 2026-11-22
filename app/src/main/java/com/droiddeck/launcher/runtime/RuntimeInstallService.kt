@@ -37,7 +37,7 @@ class RuntimeInstallService : Service() {
                 }
             }
             if (removal) LinuxRuntimeInstaller.attach(progress)
-            else LinuxRuntimeInstaller.install(applicationContext, release!!, progress)
+            else LinuxRuntimeInstaller.install(applicationContext, release!!, progress, intent?.getBooleanExtra(EXTRA_REPLACE_HELD, false) ?: false)
             @Suppress("DEPRECATION")
             stopForeground(true)
             stopSelf(startId)
@@ -102,13 +102,15 @@ class RuntimeInstallService : Service() {
         private const val EXTRA_URL = "url"
         private const val EXTRA_SHA256 = "sha256"
         private const val EXTRA_SIZE = "size"
+        private const val EXTRA_REPLACE_HELD = "replaceHeld"
 
-        fun start(context: Context, release: LinuxRuntimeInstaller.Release) {
+        fun start(context: Context, release: LinuxRuntimeInstaller.Release, replaceHeld: Boolean = false) {
             val intent = Intent(context, RuntimeInstallService::class.java)
                 .putExtra(EXTRA_VERSION, release.version)
                 .putExtra(EXTRA_URL, release.url)
                 .putExtra(EXTRA_SHA256, release.sha256)
                 .putExtra(EXTRA_SIZE, release.size)
+                .putExtra(EXTRA_REPLACE_HELD, replaceHeld)
             if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
         }
 
